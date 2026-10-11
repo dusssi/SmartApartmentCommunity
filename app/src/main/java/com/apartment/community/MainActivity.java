@@ -1,39 +1,2005 @@
 package com.apartment.community;
 
+import android.app.DatePickerDialog;
+import android.app.TimePickerDialog;
+import android.content.Context;
+import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
+import android.util.Patterns;
+import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
-import android.view.animation.AlphaAnimation;
-import android.widget.Button;
+import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.ArrayAdapter;
+import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.DrawableRes;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
+import com.apartment.community.adapter.ListRow;
+import com.apartment.community.adapter.SimpleListAdapter;
+import com.apartment.community.model.Announcement;
+import com.apartment.community.model.CommunityDocument;
+import com.apartment.community.model.CommunityEvent;
+import com.apartment.community.model.CommunityNotification;
+import com.apartment.community.model.CommunityRole;
+import com.apartment.community.model.Complaint;
+import com.apartment.community.model.EmergencyContact;
+import com.apartment.community.model.Resident;
+import com.apartment.community.model.ServiceRequest;
+import com.apartment.community.model.User;
+import com.apartment.community.model.Visitor;
+import com.apartment.community.repository.DemoRepository;
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
+import com.google.android.material.navigation.NavigationBarView;
+import com.google.android.material.switchmaterial.SwitchMaterial;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
+
+import java.text.DateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Locale;
+
+/** Single-activity native demo with explicit routes and an in-memory repository. */
 public class MainActivity extends AppCompatActivity {
+    private static final int NAV_HOME = 1;
+    private static final int NAV_SECOND = 2;
+    private static final int NAV_THIRD = 3;
+    private static final int NAV_PROFILE = 4;
+
+    private final List<Route> backStack = new ArrayList<>();
+    private DemoRepository repository;
+    private FrameLayout screenRoot;
+
+    private static final class Route {
+        final String name;
+        final String id;
+        Route(String name) { this(name, ""); }
+        Route(String name, String id) {
+            this.name = name;
+            this.id = id == null ? "" : id;
+        }
+    }
+
+    private static final class Field {
+        final TextInputLayout layout;
+        final TextInputEditText input;
+        Field(TextInputLayout layout, TextInputEditText input) {
+            this.layout = layout;
+            this.input = input;
+        }
+        String value() { return input.getText() == null ? "" : input.getText().toString().trim(); }
+        void error(String value) { layout.setError(value); }
+    }
+
+    private static final class Tile {
+        final String title;
+        final String caption;
+        final String destination;
+        @DrawableRes final int icon;
+        Tile(String title, String caption, String destination, @DrawableRes int icon) {
+            this.title = title;
+            this.caption = caption;
+            this.destination = destination;
+            this.icon = icon;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        View content = findViewById(android.R.id.content);
-        AlphaAnimation fade = new AlphaAnimation(0f, 1f);
-        fade.setDuration(250);
-        content.startAnimation(fade);
-
-        setupDemoButton(R.id.btnAnnouncements, "Announcements");
-        setupDemoButton(R.id.btnMaintenance, "Maintenance & Complaints");
-        setupDemoButton(R.id.btnVisitors, "Visitor Management");
-        setupDemoButton(R.id.btnEmergency, "Emergency Contacts");
+        screenRoot = findViewById(R.id.screenRoot);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        final int rootLeft = screenRoot.getPaddingLeft();
+        final int rootTop = screenRoot.getPaddingTop();
+        final int rootRight = screenRoot.getPaddingRight();
+        final int rootBottom = screenRoot.getPaddingBottom();
+        ViewCompat.setOnApplyWindowInsetsListener(screenRoot, (view, windowInsets) -> {
+            Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()
+                    | WindowInsetsCompat.Type.displayCutout());
+            view.setPadding(rootLeft + systemBars.left, rootTop + systemBars.top,
+                    rootRight + systemBars.right, rootBottom + systemBars.bottom);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(screenRoot);
+        repository = DemoRepository.get();
+        if (savedInstanceState != null && savedInstanceState.containsKey("current_route")) {
+            String roleName = savedInstanceState.getString("current_role", "");
+            if (!roleName.isEmpty()) {
+                try { repository.setRole(CommunityRole.valueOf(roleName)); }
+                catch (IllegalArgumentException ignored) { repository.resetRole(); }
+            }
+            backStack.add(new Route(savedInstanceState.getString("current_route", "LOGIN"),
+                    savedInstanceState.getString("current_argument", "")));
+            if (!isAuthRoute(current().name) && repository.getCurrentUser().role == null) {
+                backStack.clear();
+                backStack.add(new Route("LOGIN"));
+            }
+        } else {
+            backStack.add(new Route("LOGIN"));
+        }
+        render();
     }
 
-    private void setupDemoButton(int id, String label) {
-        Button button = findViewById(id);
-        button.setOnClickListener(v ->
-            Toast.makeText(
-                MainActivity.this,
-                label + " module will be implemented next.",
-                Toast.LENGTH_SHORT
-            ).show()
-        );
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (!backStack.isEmpty()) {
+            Route route = current();
+            outState.putString("current_route", route.name);
+            outState.putString("current_argument", route.id);
+            CommunityRole role = repository.getCurrentUser().role;
+            if (role != null) outState.putString("current_role", role.name());
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (backStack.size() > 1) {
+            backStack.remove(backStack.size() - 1);
+            render();
+        } else if (!backStack.isEmpty() && !"HOME".equals(current().name)) {
+            rootRoute("HOME");
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    private Route current() { return backStack.get(backStack.size() - 1); }
+
+    private void navigate(String route, String id) {
+        backStack.add(new Route(route, id));
+        render();
+    }
+
+    private void navigate(String route) { navigate(route, ""); }
+
+    private void rootRoute(String route) {
+        backStack.clear();
+        backStack.add(new Route(route));
+        render();
+    }
+
+    private void replaceCurrent(String route, String id) {
+        if (backStack.isEmpty()) backStack.add(new Route(route, id));
+        else backStack.set(backStack.size() - 1, new Route(route, id));
+        render();
+    }
+
+    private boolean isAuthRoute(String route) {
+        return "LOGIN".equals(route) || "REGISTER".equals(route) || "FORGOT".equals(route)
+                || "ROLE_PICKER".equals(route);
+    }
+
+    private boolean isTabRoute(String route) {
+        return "HOME".equals(route) || "COMMUNITY".equals(route) || "WORK".equals(route)
+                || "PROFILE".equals(route);
+    }
+
+    private void render() {
+        if (screenRoot == null || backStack.isEmpty()) return;
+        screenRoot.removeAllViews();
+        Route route = current();
+        if (isAuthRoute(route.name)) {
+            renderAuth(route);
+            return;
+        }
+        if (repository.getCurrentUser().role == null) {
+            rootRoute("ROLE_PICKER");
+            return;
+        }
+        renderMain(route);
+    }
+
+    private void renderAuth(Route route) {
+        if ("LOGIN".equals(route.name)) showLogin();
+        else if ("REGISTER".equals(route.name)) showRegistration();
+        else if ("FORGOT".equals(route.name)) showForgotPassword();
+        else showRolePicker();
+    }
+
+    private void renderMain(Route route) {
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setBackgroundColor(color(R.color.background));
+        shell.addView(createTopBar(route), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        FrameLayout panel = new FrameLayout(this);
+        LinearLayout.LayoutParams panelParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        shell.addView(panel, panelParams);
+        renderContent(route, panel);
+
+        BottomNavigationView bottom = createBottomNavigation(route);
+        shell.addView(bottom, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        screenRoot.addView(shell, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private void renderContent(Route route, FrameLayout panel) {
+        switch (route.name) {
+            case "HOME": showHome(panel); break;
+            case "COMMUNITY": showCommunityHub(panel); break;
+            case "WORK": showWorkHub(panel); break;
+            case "PROFILE": showProfile(panel); break;
+            case "SETTINGS": showSettings(panel); break;
+            case "ANNOUNCEMENTS": case "RESIDENTS": case "COMPLAINTS": case "REQUESTS":
+            case "VISITORS": case "EVENTS": case "EMERGENCY": case "NOTIFICATIONS":
+            case "DOCUMENTS": showList(route, panel); break;
+            case "DETAIL_ANNOUNCEMENT": case "DETAIL_RESIDENT": case "DETAIL_COMPLAINT":
+            case "DETAIL_REQUEST": case "DETAIL_VISITOR": case "DETAIL_EVENT": case "DETAIL_EMERGENCY":
+            case "DETAIL_NOTIFICATION": case "DETAIL_DOCUMENT": showDetail(route, panel); break;
+            case "FORM_COMPLAINT": showComplaintForm(panel); break;
+            case "FORM_REQUEST": showRequestForm(panel); break;
+            case "FORM_VISITOR": showVisitorForm(panel); break;
+            case "FORM_ANNOUNCEMENT": showAnnouncementForm(panel); break;
+            case "FORM_EVENT": showEventForm(panel); break;
+            case "FORM_RESIDENT": showResidentForm(panel); break;
+            case "EDIT_PROFILE": showProfileForm(panel); break;
+            default: showHome(panel); break;
+        }
+    }
+
+    private View createTopBar(Route route) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(16), dp(8), dp(16), dp(8));
+        bar.setBackgroundColor(color(R.color.background));
+
+        boolean tab = isTabRoute(route.name);
+        if (!tab) {
+            ImageButton back = iconButton(R.drawable.ic_back, "Go back");
+            back.setOnClickListener(v -> onBackPressed());
+            LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(dp(44), dp(44));
+            backParams.setMargins(0, 0, dp(10), 0);
+            bar.addView(back, backParams);
+        }
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.VERTICAL);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        bar.addView(heading, headingParams);
+
+        TextView title = text(routeTitle(route), 18, R.color.text_primary, true);
+        title.setMaxLines(1);
+        heading.addView(title);
+        String subtitle;
+        if ("HOME".equals(route.name)) {
+            subtitle = getString(R.string.community_name).toUpperCase(Locale.getDefault());
+        } else if (tab) {
+            CommunityRole role = repository.getCurrentUser().role;
+            subtitle = role.getLabel() + " · " + safe(repository.getCurrentUser().apartmentUnit, "Community demo");
+        } else {
+            subtitle = getString(R.string.community_name);
+        }
+        TextView sub = text(subtitle, 10, R.color.text_muted, true);
+        sub.setLetterSpacing(0.06f);
+        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subParams.topMargin = dp(3);
+        heading.addView(sub, subParams);
+
+        if ("HOME".equals(route.name)) {
+            ImageButton notifications = iconButton(R.drawable.ic_bell,
+                    "Notifications, " + repository.countUnreadNotifications() + " unread");
+            notifications.setOnClickListener(v -> navigate("NOTIFICATIONS"));
+            FrameLayout holder = new FrameLayout(this);
+            holder.addView(notifications, new FrameLayout.LayoutParams(dp(44), dp(44)));
+            if (repository.countUnreadNotifications() > 0) {
+                View dot = new View(this);
+                dot.setBackground(shape(color(R.color.secondary), dp(20), color(R.color.surface), dp(2)));
+                FrameLayout.LayoutParams dotParams = new FrameLayout.LayoutParams(dp(9), dp(9), Gravity.TOP | Gravity.END);
+                holder.addView(dot, dotParams);
+            }
+            bar.addView(holder, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        } else if (canAdd(route.name)) {
+            MaterialButton add = smallButton("Add", true);
+            add.setIconResource(R.drawable.ic_add);
+            add.setIconTint(ColorStateList.valueOf(Color.WHITE));
+            add.setContentDescription("Add new item");
+            add.setOnClickListener(v -> onAdd(route.name));
+            bar.addView(add);
+        } else if (tab) {
+            ImageButton notifications = iconButton(R.drawable.ic_bell, "Open notifications");
+            notifications.setOnClickListener(v -> navigate("NOTIFICATIONS"));
+            bar.addView(notifications, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        }
+        return bar;
+    }
+
+    private String routeTitle(Route route) {
+        switch (route.name) {
+            case "HOME": return "Cedar Grove";
+            case "COMMUNITY": return "Community";
+            case "WORK": return repository.getCurrentUser().role == CommunityRole.SECURITY ? "Gate desk" : "Services";
+            case "PROFILE": return "My profile";
+            case "SETTINGS": return "Settings";
+            case "ANNOUNCEMENTS": return "Announcements";
+            case "RESIDENTS": return "Resident directory";
+            case "COMPLAINTS": return repository.getCurrentUser().role == CommunityRole.MAINTENANCE ? "Work queue" : "Complaints";
+            case "REQUESTS": return "Service requests";
+            case "VISITORS": return "Visitor management";
+            case "EVENTS": return "Community events";
+            case "EMERGENCY": return "Emergency contacts";
+            case "NOTIFICATIONS": return "Notifications";
+            case "DOCUMENTS": return "Community documents";
+            case "FORM_COMPLAINT": return "New complaint";
+            case "FORM_REQUEST": return "New service request";
+            case "FORM_VISITOR": return "Register visitor";
+            case "FORM_ANNOUNCEMENT": return "New announcement";
+            case "FORM_EVENT": return "Create event";
+            case "FORM_RESIDENT": return "Add resident";
+            case "EDIT_PROFILE": return "Edit profile";
+            case "DETAIL_ANNOUNCEMENT": return "Announcement";
+            case "DETAIL_RESIDENT": return "Resident details";
+            case "DETAIL_COMPLAINT": return "Complaint details";
+            case "DETAIL_REQUEST": return "Request details";
+            case "DETAIL_VISITOR": return "Visitor details";
+            case "DETAIL_EVENT": return "Event details";
+            case "DETAIL_EMERGENCY": return "Contact details";
+            case "DETAIL_NOTIFICATION": return "Notification";
+            case "DETAIL_DOCUMENT": return "Document information";
+            default: return getString(R.string.app_name);
+        }
+    }
+
+    private BottomNavigationView createBottomNavigation(Route route) {
+        BottomNavigationView nav = new BottomNavigationView(this);
+        nav.setBackgroundColor(color(R.color.surface));
+        nav.setElevation(dp(8));
+        nav.setLabelVisibilityMode(NavigationBarView.LABEL_VISIBILITY_LABELED);
+        nav.setItemHorizontalTranslationEnabled(false);
+        nav.setPadding(0, dp(2), 0, dp(2));
+        CommunityRole role = repository.getCurrentUser().role;
+        if (role == CommunityRole.SECURITY) {
+            addNavItem(nav, NAV_HOME, 0, "Home", R.drawable.ic_home);
+            addNavItem(nav, NAV_SECOND, 1, "Visitors", R.drawable.ic_visitors);
+            addNavItem(nav, NAV_THIRD, 2, "Contacts", R.drawable.ic_phone);
+        } else if (role == CommunityRole.MAINTENANCE) {
+            addNavItem(nav, NAV_HOME, 0, "Home", R.drawable.ic_home);
+            addNavItem(nav, NAV_SECOND, 1, "Complaints", R.drawable.ic_build);
+            addNavItem(nav, NAV_THIRD, 2, "Requests", R.drawable.ic_calendar);
+        } else {
+            addNavItem(nav, NAV_HOME, 0, "Home", R.drawable.ic_home);
+            addNavItem(nav, NAV_SECOND, 1, "Community", R.drawable.ic_people);
+            addNavItem(nav, NAV_THIRD, 2, "Services", R.drawable.ic_build);
+        }
+        addNavItem(nav, NAV_PROFILE, 3, "Profile", R.drawable.ic_profile);
+        nav.setSelectedItemId(selectedNavigationId(route));
+        nav.setOnItemSelectedListener(item -> {
+            switch (item.getItemId()) {
+                case NAV_HOME: rootRoute("HOME"); return true;
+                case NAV_SECOND:
+                    if (role == CommunityRole.SECURITY) rootRoute("VISITORS");
+                    else if (role == CommunityRole.MAINTENANCE) rootRoute("COMPLAINTS");
+                    else rootRoute("COMMUNITY");
+                    return true;
+                case NAV_THIRD:
+                    if (role == CommunityRole.SECURITY) rootRoute("EMERGENCY");
+                    else if (role == CommunityRole.MAINTENANCE) rootRoute("REQUESTS");
+                    else rootRoute("WORK");
+                    return true;
+                case NAV_PROFILE: rootRoute("PROFILE"); return true;
+                default: return false;
+            }
+        });
+        return nav;
+    }
+
+    private void addNavItem(BottomNavigationView nav, int id, int order, String label, @DrawableRes int icon) {
+        android.view.MenuItem item = nav.getMenu().add(0, id, order, label);
+        item.setIcon(icon);
+        item.setCheckable(true);
+    }
+
+    private int selectedNavigationId(Route route) {
+        String name = route.name;
+        if ("HOME".equals(name)) return NAV_HOME;
+        if ("PROFILE".equals(name) || "SETTINGS".equals(name) || "EDIT_PROFILE".equals(name)) return NAV_PROFILE;
+        CommunityRole role = repository.getCurrentUser().role;
+        if (role == CommunityRole.SECURITY) {
+            if ("EMERGENCY".equals(name) || "DETAIL_EMERGENCY".equals(name)) return NAV_THIRD;
+            if ("VISITORS".equals(name) || "DETAIL_VISITOR".equals(name) || "FORM_VISITOR".equals(name)) return NAV_SECOND;
+            return NAV_HOME;
+        }
+        if (role == CommunityRole.MAINTENANCE) {
+            if ("REQUESTS".equals(name) || "DETAIL_REQUEST".equals(name)) return NAV_THIRD;
+            if ("COMPLAINTS".equals(name) || "DETAIL_COMPLAINT".equals(name)) return NAV_SECOND;
+            return NAV_HOME;
+        }
+        if ("COMMUNITY".equals(name) || "RESIDENTS".equals(name) || "ANNOUNCEMENTS".equals(name)
+                || "EVENTS".equals(name) || "DOCUMENTS".equals(name) || "NOTIFICATIONS".equals(name)
+                || "EMERGENCY".equals(name) || "DETAIL_EMERGENCY".equals(name)
+                || "DETAIL_NOTIFICATION".equals(name) || "FORM_ANNOUNCEMENT".equals(name)
+                || "FORM_EVENT".equals(name) || "FORM_RESIDENT".equals(name)
+                || name.startsWith("DETAIL_ANNOUNCEMENT") || name.startsWith("DETAIL_RESIDENT")
+                || name.startsWith("DETAIL_EVENT") || name.startsWith("DETAIL_DOCUMENT")) return NAV_SECOND;
+        return NAV_THIRD;
+    }
+
+    private void showLogin() {
+        LinearLayout page = authPage(false);
+        addBranding(page);
+        TextView title = text("Welcome home.", 30, R.color.text_primary, true);
+        addTopMargin(page, title, 20);
+        page.addView(text("Your community, thoughtfully connected.", 15, R.color.text_secondary, false));
+        addTopMargin(page, text("DEMO ACCESS", 11, R.color.primary, true), 28);
+        TextView note = text("Try the local demo with any valid email and a password of at least 6 characters. No credentials are sent or saved.", 13, R.color.text_secondary, false);
+        note.setLineSpacing(dp(3), 1f);
+        addTopMargin(page, note, 8);
+
+        Field email = createField("Email address", "name@example.com", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, false);
+        addTopMargin(page, email.layout, 22);
+        Field password = createField("Password", "Enter any demo password", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false);
+        password.layout.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        addTopMargin(page, password.layout, 12);
+
+        MaterialButton login = fullButton("Continue to demo", true);
+        addTopMargin(page, login, 18);
+        login.setOnClickListener(v -> {
+            boolean ok = true;
+            if (!Patterns.EMAIL_ADDRESS.matcher(email.value()).matches()) { email.error("Enter a valid email address"); ok = false; }
+            else email.error(null);
+            if (password.value().length() < 6) { password.error("Use at least 6 characters for this demo"); ok = false; }
+            else password.error(null);
+            if (ok) {
+                repository.setLoginEmail(email.value());
+                hideKeyboard();
+                navigate("ROLE_PICKER");
+            }
+        });
+        MaterialButton demo = fullButton("Explore demo roles", false);
+        addTopMargin(page, demo, 10);
+        demo.setOnClickListener(v -> navigate("ROLE_PICKER"));
+
+        LinearLayout links = new LinearLayout(this);
+        links.setGravity(Gravity.CENTER);
+        links.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton register = textButton("Create account");
+        MaterialButton forgot = textButton("Forgot password?");
+        links.addView(register, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        links.addView(forgot, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        addTopMargin(page, links, 10);
+        register.setOnClickListener(v -> navigate("REGISTER"));
+        forgot.setOnClickListener(v -> navigate("FORGOT"));
+        addDisclaimer(page);
+        attachAuthPage(page);
+    }
+
+    private void showRegistration() {
+        LinearLayout page = authPage(true);
+        addAuthHeader(page, "Create a demo profile", "This profile stays in this app session and is not sent to a server.");
+        Field name = createField("Full name", "Your name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, false);
+        Field email = createField("Email address", "name@example.com", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, false);
+        Field password = createField("Password", "At least 6 characters", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false);
+        password.layout.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        Field unit = createField("Apartment / unit", "For example, C-204", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, false);
+        addTopMargin(page, name.layout, 22);
+        addTopMargin(page, email.layout, 12);
+        addTopMargin(page, password.layout, 12);
+        addTopMargin(page, unit.layout, 12);
+        MaterialButton create = fullButton("Continue", true);
+        addTopMargin(page, create, 18);
+        create.setOnClickListener(v -> {
+            boolean ok = true;
+            if (name.value().length() < 2) { name.error("Enter your name"); ok = false; } else name.error(null);
+            if (!Patterns.EMAIL_ADDRESS.matcher(email.value()).matches()) { email.error("Enter a valid email address"); ok = false; } else email.error(null);
+            if (password.value().length() < 6) { password.error("Use at least 6 characters"); ok = false; } else password.error(null);
+            if (unit.value().isEmpty()) { unit.error("Enter your apartment or unit"); ok = false; } else unit.error(null);
+            if (ok) {
+                repository.setRegisteredUser(name.value(), email.value(), unit.value());
+                hideKeyboard();
+                Toast.makeText(this, "Demo profile ready. Choose a role preview.", Toast.LENGTH_SHORT).show();
+                navigate("ROLE_PICKER");
+            }
+        });
+        addDisclaimer(page);
+        attachAuthPage(page);
+    }
+
+    private void showForgotPassword() {
+        LinearLayout page = authPage(true);
+        addAuthHeader(page, "Password recovery", "This front-end demo does not connect to email or an account service.");
+        Field email = createField("Email address", "name@example.com", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, false);
+        addTopMargin(page, email.layout, 22);
+        MaterialButton send = fullButton("Check recovery details", true);
+        addTopMargin(page, send, 18);
+        send.setOnClickListener(v -> {
+            if (!Patterns.EMAIL_ADDRESS.matcher(email.value()).matches()) {
+                email.error("Enter a valid email address");
+                return;
+            }
+            email.error(null);
+            new AlertDialog.Builder(this)
+                    .setTitle("Demo only")
+                    .setMessage("No reset email was sent. Password recovery will require the future backend.")
+                    .setPositiveButton("Got it", null)
+                    .show();
+        });
+        addDisclaimer(page);
+        attachAuthPage(page);
+    }
+
+    private void showRolePicker() {
+        LinearLayout page = authPage(true);
+        addAuthHeader(page, "Choose a role preview", "Explore how the same community app can support different teams.");
+        TextView warning = text("Role preview is for demonstration only. It is not authentication or access control.", 13, R.color.warning, false);
+        warning.setPadding(dp(14), dp(12), dp(14), dp(12));
+        warning.setBackground(shape(color(R.color.surface), dp(14), color(R.color.outline), dp(1)));
+        addTopMargin(page, warning, 18);
+        for (CommunityRole role : CommunityRole.values()) {
+            MaterialCardView card = new MaterialCardView(this);
+            card.setCardBackgroundColor(color(R.color.surface));
+            card.setStrokeColor(color(R.color.outline));
+            card.setStrokeWidth(dp(1));
+            card.setRadius(dp(16));
+            card.setCardElevation(dp(1));
+            card.setClickable(true);
+            card.setFocusable(true);
+            LinearLayout copy = new LinearLayout(this);
+            copy.setOrientation(LinearLayout.VERTICAL);
+            copy.setPadding(dp(18), dp(16), dp(18), dp(16));
+            copy.addView(text(role.getLabel(), 16, R.color.text_primary, true));
+            TextView desc = text(role.getDescription() + " · Open demo dashboard", 13, R.color.text_secondary, false);
+            addTopMargin(copy, desc, 5);
+            card.addView(copy);
+            LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            cardParams.topMargin = dp(12);
+            page.addView(card, cardParams);
+            card.setContentDescription("Preview as " + role.getLabel());
+            card.setOnClickListener(v -> {
+                repository.setRole(role);
+                rootRoute("HOME");
+                Toast.makeText(this, role.getLabel() + " preview selected", Toast.LENGTH_SHORT).show();
+            });
+        }
+        addDisclaimer(page);
+        attachAuthPage(page);
+    }
+
+    private LinearLayout authPage(boolean withBack) {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(24), dp(14), dp(24), dp(26));
+        page.setBackgroundColor(color(R.color.background));
+        if (withBack) {
+            ImageButton back = iconButton(R.drawable.ic_back, "Back to previous screen");
+            back.setOnClickListener(v -> onBackPressed());
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(44), dp(44));
+            params.bottomMargin = dp(8);
+            page.addView(back, params);
+        }
+        return page;
+    }
+
+    private void attachAuthPage(LinearLayout page) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.addView(page, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        screenRoot.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private void addBranding(LinearLayout parent) {
+        LinearLayout brand = new LinearLayout(this);
+        brand.setOrientation(LinearLayout.HORIZONTAL);
+        brand.setGravity(Gravity.CENTER_VERTICAL);
+        TextView mark = text("CG", 17, R.color.white, true);
+        mark.setGravity(Gravity.CENTER);
+        mark.setBackground(shape(color(R.color.primary), dp(16), color(R.color.primary), 0));
+        brand.addView(mark, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        copyParams.leftMargin = dp(12);
+        brand.addView(copy, copyParams);
+        copy.addView(text("CEDAR GROVE", 13, R.color.primary_dark, true));
+        TextView subtitle = text("SMART COMMUNITY", 10, R.color.text_muted, true);
+        subtitle.setLetterSpacing(0.1f);
+        addTopMargin(copy, subtitle, 3);
+        parent.addView(brand);
+    }
+
+    private void addAuthHeader(LinearLayout page, String heading, String subheading) {
+        addBranding(page);
+        TextView title = text(heading, 27, R.color.text_primary, true);
+        addTopMargin(page, title, 24);
+        TextView subtitle = text(subheading, 14, R.color.text_secondary, false);
+        subtitle.setLineSpacing(dp(3), 1f);
+        addTopMargin(page, subtitle, 7);
+    }
+
+    private void addDisclaimer(LinearLayout parent) {
+        TextView disclaimer = text(getString(R.string.demo_disclaimer), 11, R.color.text_muted, false);
+        disclaimer.setGravity(Gravity.CENTER);
+        disclaimer.setLineSpacing(dp(2), 1f);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(26);
+        parent.addView(disclaimer, params);
+    }
+
+    private void showHome(FrameLayout panel) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setClipToPadding(false);
+        LinearLayout content = verticalContent();
+        scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.addView(scroll);
+
+        User user = repository.getCurrentUser();
+        String firstName = user.name == null || user.name.trim().isEmpty() ? "there" : user.name.trim().split("\\s+")[0];
+        TextView greeting = text("Welcome, " + firstName + ".", 27, R.color.text_primary, true);
+        content.addView(greeting);
+        TextView subtitle = text(user.role.getLabel() + " preview" + (user.apartmentUnit == null || user.apartmentUnit.isEmpty() ? "" : " · " + user.apartmentUnit), 14, R.color.text_secondary, false);
+        addTopMargin(content, subtitle, 5);
+
+        MaterialCardView banner = card();
+        LinearLayout bannerCopy = new LinearLayout(this);
+        bannerCopy.setOrientation(LinearLayout.VERTICAL);
+        bannerCopy.setPadding(dp(17), dp(16), dp(17), dp(16));
+        bannerCopy.addView(text("A better connected community", 16, R.color.primary_dark, true));
+        TextView bannerNote = text("Find updates, requests and helpful contacts in one place. This installation uses fictional local demo records.", 13, R.color.text_secondary, false);
+        bannerNote.setLineSpacing(dp(2), 1f);
+        addTopMargin(bannerCopy, bannerNote, 6);
+        banner.addView(bannerCopy);
+        addTopMargin(content, banner, 22);
+
+        addSectionHeader(content, summaryHeading(), null, null, 22);
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
+        stats.setGravity(Gravity.CENTER_VERTICAL);
+        List<String[]> values = summaryValues(user.role);
+        for (int i = 0; i < values.size(); i++) {
+            String[] value = values.get(i);
+            MaterialCardView stat = card();
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(12), dp(13), dp(10), dp(13));
+            box.addView(text(value[0], 23, R.color.primary, true));
+            TextView label = text(value[1], 11, R.color.text_secondary, true);
+            addTopMargin(box, label, 3);
+            stat.addView(box);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) params.leftMargin = dp(8);
+            stats.addView(stat, params);
+        }
+        addTopMargin(content, stats, 10);
+
+        addSectionHeader(content, "Quick access", null, null, 24);
+        addActionGrid(content, homeTiles(user.role));
+
+        addSectionHeader(content, "Recent community updates", "See all", () -> navigate("ANNOUNCEMENTS"), 24);
+        List<Announcement> recent = repository.getAnnouncements();
+        for (int i = 0; i < Math.min(2, recent.size()); i++) {
+            Announcement announcement = recent.get(i);
+            MaterialCardView update = compactInfoCard(announcement.title,
+                    announcement.category + " · " + announcement.createdAt,
+                    announcement.read ? "Read" : "Unread");
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.topMargin = dp(8);
+            content.addView(update, params);
+            update.setOnClickListener(v -> {
+                repository.markAnnouncementRead(announcement.id, true);
+                navigate("DETAIL_ANNOUNCEMENT", announcement.id);
+            });
+        }
+
+        CommunityEvent upcoming = null;
+        for (CommunityEvent event : repository.getEvents()) if (event.upcoming) { upcoming = event; break; }
+        final CommunityEvent upcomingEvent = upcoming;
+        if (upcomingEvent != null) {
+            addSectionHeader(content, "Coming up", "All events", () -> navigate("EVENTS"), 24);
+            MaterialCardView eventCard = compactInfoCard(upcomingEvent.title, upcomingEvent.eventDateTime + " · " + upcomingEvent.location,
+                    upcomingEvent.attending ? "Going" : "Event");
+            content.addView(eventCard);
+            eventCard.setOnClickListener(v -> navigate("DETAIL_EVENT", upcomingEvent.id));
+        }
+        TextView footer = text("Demo data is local to this app session. Changes are not shared with other users.", 11, R.color.text_muted, false);
+        footer.setGravity(Gravity.CENTER);
+        addTopMargin(content, footer, 20);
+    }
+
+    private String summaryHeading() {
+        CommunityRole role = repository.getCurrentUser().role;
+        if (role == CommunityRole.SECURITY) return "Gate overview";
+        if (role == CommunityRole.MAINTENANCE) return "Maintenance overview";
+        if (role == CommunityRole.MANAGEMENT) return "Community overview";
+        return "Your community at a glance";
+    }
+
+    private List<String[]> summaryValues(CommunityRole role) {
+        List<String[]> result = new ArrayList<>();
+        if (role == CommunityRole.SECURITY) {
+            int in = 0;
+            for (Visitor item : repository.getVisitors()) if ("Checked in".equals(item.status)) in++;
+            result.add(new String[]{String.valueOf(repository.countExpectedVisitors()), "Expected"});
+            result.add(new String[]{String.valueOf(in), "On site"});
+            result.add(new String[]{String.valueOf(repository.countUnreadNotifications()), "Updates"});
+        } else if (role == CommunityRole.MAINTENANCE) {
+            int progress = 0, resolved = 0;
+            for (Complaint item : repository.getComplaints()) {
+                if ("In Progress".equals(item.status)) progress++;
+                if ("Resolved".equals(item.status)) resolved++;
+            }
+            result.add(new String[]{String.valueOf(repository.countOpenComplaints()), "Open"});
+            result.add(new String[]{String.valueOf(progress), "In progress"});
+            result.add(new String[]{String.valueOf(resolved), "Resolved"});
+        } else {
+            result.add(new String[]{String.valueOf(repository.countOpenComplaints()), "Open issues"});
+            result.add(new String[]{String.valueOf(repository.countExpectedVisitors()), "Visitors"});
+            result.add(new String[]{String.valueOf(repository.countUnreadAnnouncements()), "New updates"});
+        }
+        return result;
+    }
+
+    private List<Tile> homeTiles(CommunityRole role) {
+        List<Tile> tiles = new ArrayList<>();
+        if (role == CommunityRole.SECURITY) {
+            tiles.add(new Tile("Visitors", "Expected and recent", "VISITORS", R.drawable.ic_visitors));
+            tiles.add(new Tile("Emergency contacts", "Quick dial directory", "EMERGENCY", R.drawable.ic_phone));
+            tiles.add(new Tile("Announcements", "Community notices", "ANNOUNCEMENTS", R.drawable.ic_bell));
+            tiles.add(new Tile("Notifications", "Local in-app inbox", "NOTIFICATIONS", R.drawable.ic_bell));
+        } else if (role == CommunityRole.MAINTENANCE) {
+            tiles.add(new Tile("Complaints", "Review work queue", "COMPLAINTS", R.drawable.ic_build));
+            tiles.add(new Tile("Service requests", "View request status", "REQUESTS", R.drawable.ic_calendar));
+            tiles.add(new Tile("Announcements", "Community notices", "ANNOUNCEMENTS", R.drawable.ic_bell));
+            tiles.add(new Tile("Emergency contacts", "Community directory", "EMERGENCY", R.drawable.ic_phone));
+            tiles.add(new Tile("Notifications", "Local in-app inbox", "NOTIFICATIONS", R.drawable.ic_bell));
+        } else {
+            tiles.add(new Tile("Announcements", "Notices and updates", "ANNOUNCEMENTS", R.drawable.ic_bell));
+            tiles.add(new Tile("Complaints", "Report and track an issue", "COMPLAINTS", R.drawable.ic_build));
+            tiles.add(new Tile("Service requests", "Ask for community help", "REQUESTS", R.drawable.ic_calendar));
+            tiles.add(new Tile("Visitors", "Register an expected visit", "VISITORS", R.drawable.ic_visitors));
+            tiles.add(new Tile("Resident directory", "Find a neighbour", "RESIDENTS", R.drawable.ic_people));
+            tiles.add(new Tile("Events", "What's happening", "EVENTS", R.drawable.ic_calendar));
+            tiles.add(new Tile("Emergency contacts", "Important numbers", "EMERGENCY", R.drawable.ic_phone));
+            tiles.add(new Tile("Documents", "Community resources", "DOCUMENTS", R.drawable.ic_people));
+            tiles.add(new Tile("Notifications", "Your local inbox", "NOTIFICATIONS", R.drawable.ic_bell));
+        }
+        return tiles;
+    }
+
+    private void showCommunityHub(FrameLayout panel) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = verticalContent();
+        scroll.addView(content);
+        panel.addView(scroll);
+        content.addView(text("Everything shared by your community.", 15, R.color.text_secondary, false));
+        TextView communityNote = text("Updates, neighbours and resources for Cedar Grove.", 13, R.color.text_muted, false);
+        addTopMargin(content, communityNote, 4);
+        List<Tile> tiles = new ArrayList<>();
+        CommunityRole role = repository.getCurrentUser().role;
+        tiles.add(new Tile("Announcements", "Notices from management", "ANNOUNCEMENTS", R.drawable.ic_bell));
+        if (role != CommunityRole.SECURITY) tiles.add(new Tile("Residents", "Search the sample directory", "RESIDENTS", R.drawable.ic_people));
+        tiles.add(new Tile("Events", "Upcoming community gatherings", "EVENTS", R.drawable.ic_calendar));
+        if (role != CommunityRole.SECURITY) tiles.add(new Tile("Documents", "Sample community resources", "DOCUMENTS", R.drawable.ic_people));
+        tiles.add(new Tile("Emergency contacts", "Public and sample contacts", "EMERGENCY", R.drawable.ic_phone));
+        tiles.add(new Tile("Notifications", "Read and unread updates", "NOTIFICATIONS", R.drawable.ic_bell));
+        addSectionHeader(content, "Explore", null, null, 22);
+        addActionGrid(content, tiles);
+        TextView info = text("Directory and document entries are fictional sample content; no private resident records or files are included.", 12, R.color.text_muted, false);
+        info.setLineSpacing(dp(2), 1f);
+        addTopMargin(content, info, 18);
+    }
+
+    private void showWorkHub(FrameLayout panel) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = verticalContent();
+        scroll.addView(content);
+        panel.addView(scroll);
+        CommunityRole role = repository.getCurrentUser().role;
+        String intro = role == CommunityRole.SECURITY
+                ? "A focused view of expected visitors and essential contacts."
+                : role == CommunityRole.MAINTENANCE
+                ? "Review issues, update work status, and check incoming requests."
+                : role == CommunityRole.MANAGEMENT
+                ? "Review community operations and available demo management actions."
+                : "Request help and keep track of your community services.";
+        content.addView(text(intro, 15, R.color.text_secondary, false));
+        List<Tile> tiles = new ArrayList<>();
+        if (role == CommunityRole.SECURITY) {
+            tiles.add(new Tile("Visitor overview", "Expected, approved and checked-in", "VISITORS", R.drawable.ic_visitors));
+            tiles.add(new Tile("Emergency contacts", "Open the contact directory", "EMERGENCY", R.drawable.ic_phone));
+        } else if (role == CommunityRole.MAINTENANCE) {
+            tiles.add(new Tile("Complaint queue", "Advance demo work status", "COMPLAINTS", R.drawable.ic_build));
+            tiles.add(new Tile("Service requests", "Review sample requests", "REQUESTS", R.drawable.ic_calendar));
+        } else {
+            tiles.add(new Tile("Complaints", "Submit or review maintenance issues", "COMPLAINTS", R.drawable.ic_build));
+            tiles.add(new Tile("Service requests", "Submit or track a request", "REQUESTS", R.drawable.ic_calendar));
+            tiles.add(new Tile("Visitors", "Register and review visits", "VISITORS", R.drawable.ic_visitors));
+            if (role == CommunityRole.MANAGEMENT) {
+                tiles.add(new Tile("Resident directory", "Review or add demo residents", "RESIDENTS", R.drawable.ic_people));
+                tiles.add(new Tile("Announcements", "Publish a local demo notice", "ANNOUNCEMENTS", R.drawable.ic_bell));
+                tiles.add(new Tile("Events", "Create a local demo event", "EVENTS", R.drawable.ic_calendar));
+            }
+            tiles.add(new Tile("Emergency contacts", "Open the contact directory", "EMERGENCY", R.drawable.ic_phone));
+        }
+        addSectionHeader(content, "Services", null, null, 22);
+        addActionGrid(content, tiles);
+        TextView note = text("Management and staff actions change only the in-memory demonstration state on this device. They do not synchronize with other accounts.", 12, R.color.text_muted, false);
+        note.setLineSpacing(dp(2), 1f);
+        addTopMargin(content, note, 20);
+    }
+
+    private void showProfile(FrameLayout panel) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = verticalContent();
+        scroll.addView(content);
+        panel.addView(scroll);
+        User user = repository.getCurrentUser();
+        MaterialCardView userCard = card();
+        LinearLayout userInfo = new LinearLayout(this);
+        userInfo.setGravity(Gravity.CENTER_VERTICAL);
+        userInfo.setPadding(dp(18), dp(18), dp(18), dp(18));
+        TextView avatar = text(initials(user.name), 20, R.color.white, true);
+        avatar.setGravity(Gravity.CENTER);
+        avatar.setBackground(shape(color(R.color.primary), dp(50), color(R.color.primary), 0));
+        userInfo.addView(avatar, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        LinearLayout nameBlock = new LinearLayout(this);
+        nameBlock.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        nameParams.leftMargin = dp(14);
+        userInfo.addView(nameBlock, nameParams);
+        nameBlock.addView(text(safe(user.name, "Demo user"), 18, R.color.text_primary, true));
+        TextView role = text(user.role.getLabel() + " preview", 13, R.color.primary, true);
+        addTopMargin(nameBlock, role, 4);
+        userCard.addView(userInfo);
+        content.addView(userCard);
+
+        addSectionHeader(content, "Personal information", null, null, 24);
+        MaterialCardView details = card();
+        LinearLayout detailsColumn = new LinearLayout(this);
+        detailsColumn.setOrientation(LinearLayout.VERTICAL);
+        detailsColumn.setPadding(dp(18), dp(16), dp(18), dp(16));
+        addKeyValue(detailsColumn, "Email", safe(user.email, "Not set"));
+        addKeyValue(detailsColumn, "Apartment", safe(user.apartmentUnit, "Not set"));
+        addKeyValue(detailsColumn, "Current role", user.role.getLabel());
+        details.addView(detailsColumn);
+        content.addView(details);
+
+        MaterialButton edit = fullButton("Edit demo profile", true);
+        addTopMargin(content, edit, 16);
+        edit.setOnClickListener(v -> navigate("EDIT_PROFILE"));
+        MaterialButton settings = fullButton("Settings and preferences", false);
+        addTopMargin(content, settings, 10);
+        settings.setOnClickListener(v -> navigate("SETTINGS"));
+        MaterialButton logout = fullButton("Return to entry screen", false);
+        logout.setTextColor(color(R.color.danger));
+        addTopMargin(content, logout, 10);
+        logout.setOnClickListener(v -> confirmLogout());
+
+        TextView limitation = text("Profile changes are held in local demo memory. There is no secure account service or server-side role enforcement.", 12, R.color.text_muted, false);
+        limitation.setLineSpacing(dp(2), 1f);
+        addTopMargin(content, limitation, 20);
+    }
+
+    private void showSettings(FrameLayout panel) {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = verticalContent();
+        scroll.addView(content);
+        panel.addView(scroll);
+        TextView intro = text("Choose how this demo presents local preferences. These switches do not enable push delivery.", 14, R.color.text_secondary, false);
+        intro.setLineSpacing(dp(2), 1f);
+        content.addView(intro);
+        MaterialCardView card = card();
+        LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        rows.setPadding(dp(16), dp(6), dp(16), dp(6));
+        addPreferenceSwitch(rows, "Community inbox", "Show local in-app demo notifications", "pref_demo_inbox");
+        addPreferenceSwitch(rows, "Event reminders", "Local preference only; no reminder is scheduled", "pref_demo_events");
+        card.addView(rows);
+        addTopMargin(content, card, 18);
+        addSectionHeader(content, "About this demo", null, null, 24);
+        MaterialCardView about = card();
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(dp(17), dp(16), dp(17), dp(16));
+        info.addView(text("Smart Apartment Community", 15, R.color.text_primary, true));
+        TextView body = text("Java and Android XML frontend · fictional sample records · local-only interactions. Spring Boot, MySQL, real authentication, synchronization and push notifications are future work.", 13, R.color.text_secondary, false);
+        body.setLineSpacing(dp(3), 1f);
+        addTopMargin(info, body, 7);
+        about.addView(info);
+        addTopMargin(content, about, 10);
+        MaterialButton logout = fullButton("Return to entry screen", false);
+        addTopMargin(content, logout, 20);
+        logout.setOnClickListener(v -> confirmLogout());
+    }
+
+    private void addPreferenceSwitch(LinearLayout parent, String title, String summary, String key) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams labelsParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        labelsParams.rightMargin = dp(8);
+        row.addView(labels, labelsParams);
+        labels.addView(text(title, 14, R.color.text_primary, true));
+        TextView description = text(summary, 11, R.color.text_secondary, false);
+        addTopMargin(labels, description, 3);
+        SwitchMaterial toggle = new SwitchMaterial(this);
+        String prefKey = "demo_preferences";
+        toggle.setChecked(getSharedPreferences(prefKey, MODE_PRIVATE).getBoolean(key, true));
+        toggle.setContentDescription(title + " preference");
+        toggle.setOnCheckedChangeListener((button, checked) ->
+                getSharedPreferences(prefKey, MODE_PRIVATE).edit().putBoolean(key, checked).apply());
+        row.addView(toggle);
+        parent.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (parent.getChildCount() > 1) {
+            View divider = new View(this);
+            divider.setBackgroundColor(color(R.color.outline));
+            LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+            dividerParams.setMargins(0, dp(7), 0, dp(7));
+            parent.addView(divider, parent.getChildCount() - 1, dividerParams);
+        }
+    }
+
+    private void showList(Route route, FrameLayout panel) {
+        String type = route.name;
+        final SimpleListAdapter[] adapterHolder = new SimpleListAdapter[1];
+        final TextView[] emptyHolder = new TextView[1];
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(18), dp(4), dp(18), dp(8));
+        panel.addView(page, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        TextView intro = text(listIntro(type), 13, R.color.text_secondary, false);
+        intro.setLineSpacing(dp(2), 1f);
+        page.addView(intro);
+        Field search = createField("", searchHint(type), InputType.TYPE_CLASS_TEXT, false);
+        search.input.setSingleLine(true);
+        search.input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        search.layout.setHintEnabled(false);
+        search.input.setHint(searchHint(type));
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        searchParams.topMargin = dp(12);
+        page.addView(search.layout, searchParams);
+
+        String[] choices = filterChoices(type);
+        final String[] selectedFilter = new String[]{choices.length == 0 ? "All" : choices[0]};
+        if (choices.length > 1) {
+            HorizontalScrollView filterScroll = new HorizontalScrollView(this);
+            filterScroll.setHorizontalScrollBarEnabled(false);
+            ChipGroup chips = new ChipGroup(this);
+            chips.setSingleLine(true);
+            chips.setSingleSelection(true);
+            chips.setChipSpacingHorizontal(dp(7));
+            for (String choice : choices) {
+                Chip chip = new Chip(this);
+                chip.setId(View.generateViewId());
+                chip.setText(choice);
+                chip.setCheckable(true);
+                chip.setClickable(true);
+                chip.setEnsureMinTouchTargetSize(true);
+                chip.setChecked(choice.equals(selectedFilter[0]));
+                chip.setOnCheckedChangeListener((button, checked) -> {
+                    if (checked) {
+                        selectedFilter[0] = choice;
+                        refreshList(type, search.value(), selectedFilter[0], adapterHolder[0], emptyHolder[0]);
+                    }
+                });
+                chips.addView(chip);
+            }
+            filterScroll.addView(chips);
+            LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            filterParams.topMargin = dp(7);
+            page.addView(filterScroll, filterParams);
+        }
+
+        FrameLayout listFrame = new FrameLayout(this);
+        LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        frameParams.topMargin = dp(5);
+        page.addView(listFrame, frameParams);
+        RecyclerView recycler = new RecyclerView(this);
+        recycler.setLayoutManager(new LinearLayoutManager(this));
+        recycler.setClipToPadding(false);
+        recycler.setPadding(0, dp(2), 0, dp(12));
+        TextView empty = text(emptyText(type), 14, R.color.text_secondary, false);
+        emptyHolder[0] = empty;
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(dp(28), dp(20), dp(28), dp(20));
+        empty.setVisibility(View.GONE);
+        listFrame.addView(recycler, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        listFrame.addView(empty, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        SimpleListAdapter adapter = new SimpleListAdapter(this, row -> openListRow(type, row.id));
+        adapterHolder[0] = adapter;
+        recycler.setAdapter(adapter);
+        refreshList(type, "", selectedFilter[0], adapter, empty);
+        search.input.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                refreshList(type, s.toString(), selectedFilter[0], adapter, empty);
+            }
+            @Override public void afterTextChanged(Editable s) { }
+        });
+    }
+
+    private void refreshList(String type, String query, String filter,
+                             SimpleListAdapter adapter, TextView empty) {
+        if (adapter == null || empty == null) return;
+        List<ListRow> rows = rowsFor(type, query == null ? "" : query.trim(), filter);
+        adapter.submitRows(rows);
+        empty.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    private List<ListRow> rowsFor(String type, String query, String filter) {
+        List<ListRow> result = new ArrayList<>();
+        String q = query.toLowerCase(Locale.getDefault());
+        if ("ANNOUNCEMENTS".equals(type)) {
+            for (Announcement item : repository.getAnnouncements()) {
+                if (matchesFilter(type, item.category, item.priority, filter)
+                        && hasQuery(q, item.title, item.description, item.category, item.priority))
+                    result.add(new ListRow(item.id, item.title, item.category + " · " + item.priority + " priority · " + snip(item.description, 58),
+                            item.createdAt + " · " + (item.read ? "Read" : "Unread"), item.priority));
+            }
+        } else if ("RESIDENTS".equals(type)) {
+            for (Resident item : repository.getResidents()) {
+                if (matchesFilter(type, item.apartmentUnit, "", filter)
+                        && hasQuery(q, item.name, item.apartmentUnit, item.household))
+                    result.add(new ListRow(item.id, item.name, "Apartment " + item.apartmentUnit, item.household + " · Sample resident", "Resident"));
+            }
+        } else if ("COMPLAINTS".equals(type)) {
+            for (Complaint item : repository.getComplaints()) {
+                if (matchesFilter(type, item.status, "", filter)
+                        && hasQuery(q, item.title, item.description, item.category, item.apartmentUnit, item.priority))
+                    result.add(new ListRow(item.id, item.title, item.category + " · " + item.apartmentUnit,
+                            item.priority + " priority · " + item.createdAt, item.status));
+            }
+        } else if ("REQUESTS".equals(type)) {
+            for (ServiceRequest item : repository.getRequests()) {
+                if (matchesFilter(type, item.status, "", filter)
+                        && hasQuery(q, item.title, item.description, item.category, item.apartmentUnit))
+                    result.add(new ListRow(item.id, item.title, item.category + " · " + item.apartmentUnit, item.createdAt, item.status));
+            }
+        } else if ("VISITORS".equals(type)) {
+            for (Visitor item : repository.getVisitors()) {
+                if (matchesFilter(type, item.status, "", filter)
+                        && hasQuery(q, item.name, item.hostUnit, item.purpose, item.expectedArrival))
+                    result.add(new ListRow(item.id, item.name, item.purpose + " · Host " + item.hostUnit, item.expectedArrival, item.status));
+            }
+        } else if ("EVENTS".equals(type)) {
+            for (CommunityEvent item : repository.getEvents()) {
+                String state = item.upcoming ? "Upcoming" : "Past";
+                if (item.attending) state = "Going";
+                if (matchesFilter(type, item.upcoming ? "Upcoming" : "Past", "", filter)
+                        && hasQuery(q, item.title, item.description, item.location, item.eventDateTime))
+                    result.add(new ListRow(item.id, item.title, item.location, item.eventDateTime, state));
+            }
+        } else if ("EMERGENCY".equals(type)) {
+            for (EmergencyContact item : repository.getEmergencyContacts()) {
+                if (hasQuery(q, item.name, item.description, item.phone, item.availability))
+                    result.add(new ListRow(item.id, item.name, item.description,
+                            item.phone.isEmpty() ? item.availability + " · No number configured" : item.phone + " · " + item.availability,
+                            item.phone.isEmpty() ? "Info" : "Call"));
+            }
+        } else if ("NOTIFICATIONS".equals(type)) {
+            for (CommunityNotification item : repository.getNotifications()) {
+                if (matchesFilter(type, item.read ? "Read" : "Unread", "", filter)
+                        && hasQuery(q, item.title, item.message, item.category))
+                    result.add(new ListRow(item.id, item.title, item.message, item.category + " · " + item.createdAt, item.read ? "Read" : "Unread"));
+            }
+        } else if ("DOCUMENTS".equals(type)) {
+            for (CommunityDocument item : repository.getDocuments()) {
+                if (matchesFilter(type, item.category, "", filter)
+                        && hasQuery(q, item.title, item.category, item.description, item.metadata))
+                    result.add(new ListRow(item.id, item.title, item.description, item.metadata, item.category));
+            }
+        }
+        return result;
+    }
+
+    private boolean matchesFilter(String type, String primary, String secondary, String filter) {
+        if (filter == null || "All".equals(filter)) return true;
+        if ("RESIDENTS".equals(type)) return primary.toUpperCase(Locale.US).startsWith(filter.substring(filter.length() - 1));
+        if ("EVENTS".equals(type)) return filter.equals(primary);
+        if ("ANNOUNCEMENTS".equals(type)) return filter.equals(primary) || filter.equals(secondary);
+        return filter.equalsIgnoreCase(primary);
+    }
+
+    private boolean hasQuery(String query, String... values) {
+        if (query == null || query.isEmpty()) return true;
+        for (String value : values) if (value != null && value.toLowerCase(Locale.getDefault()).contains(query)) return true;
+        return false;
+    }
+
+    private String[] filterChoices(String type) {
+        switch (type) {
+            case "ANNOUNCEMENTS": return new String[]{"All", "Facilities", "Community", "Events", "Important"};
+            case "RESIDENTS": return new String[]{"All", "Tower A", "Tower B", "Tower C"};
+            case "COMPLAINTS": return new String[]{"All", "Open", "In Progress", "Resolved"};
+            case "REQUESTS": return new String[]{"All", "Open", "Scheduled", "Completed"};
+            case "VISITORS": return new String[]{"All", "Expected", "Approved", "Checked in", "Checked out"};
+            case "EVENTS": return new String[]{"All", "Upcoming", "Past"};
+            case "NOTIFICATIONS": return new String[]{"All", "Unread", "Read"};
+            case "DOCUMENTS": return new String[]{"All", "Policies", "Guides", "Forms"};
+            default: return new String[]{"All"};
+        }
+    }
+
+    private String listIntro(String type) {
+        switch (type) {
+            case "ANNOUNCEMENTS": return "Community notices and sample updates from management.";
+            case "RESIDENTS": return "Search fictional neighbours by name or apartment unit.";
+            case "COMPLAINTS": return repository.getCurrentUser().role == CommunityRole.MAINTENANCE
+                    ? "Review assigned sample issues and update local demo status." : "Report a maintenance issue and follow its local demo status.";
+            case "REQUESTS": return "Submit a service request or track a sample request.";
+            case "VISITORS": return repository.getCurrentUser().role == CommunityRole.SECURITY
+                    ? "Expected visitors and locally recorded entry status." : "Register an expected visit or review local visitor entries.";
+            case "EVENTS": return "See community gatherings and update your demo RSVP.";
+            case "EMERGENCY": return "Public India helplines and clearly marked sample community contacts.";
+            case "NOTIFICATIONS": return "In-app demo inbox. Actual push notifications are not implemented.";
+            case "DOCUMENTS": return "Sample document listings only; no files are attached or downloaded.";
+            default: return "Sample community information.";
+        }
+    }
+
+    private String searchHint(String type) {
+        switch (type) {
+            case "ANNOUNCEMENTS": return "Search announcements";
+            case "RESIDENTS": return "Search name or unit";
+            case "COMPLAINTS": return "Search issue, category or unit";
+            case "REQUESTS": return "Search requests";
+            case "VISITORS": return "Search visitor, unit or purpose";
+            case "EVENTS": return "Search events";
+            case "EMERGENCY": return "Search contacts";
+            case "NOTIFICATIONS": return "Search notifications";
+            case "DOCUMENTS": return "Search documents";
+            default: return "Search";
+        }
+    }
+
+    private String emptyText(String type) {
+        switch (type) {
+            case "ANNOUNCEMENTS": return "No announcements match this search. Clear the search or filter to see all updates.";
+            case "RESIDENTS": return "No sample residents match. Try another name or apartment unit.";
+            case "COMPLAINTS": return "No complaints match. Clear the search or submit a new demo complaint.";
+            case "REQUESTS": return "No requests match. Clear the search or create a demo request.";
+            case "VISITORS": return "No visitor records match. Clear the search or register a visit.";
+            case "EVENTS": return "No events match this filter. Check back for community updates.";
+            case "EMERGENCY": return "No contacts match your search.";
+            case "NOTIFICATIONS": return "Your demo inbox is clear for this filter.";
+            case "DOCUMENTS": return "No sample documents match this search.";
+            default: return "Nothing to show yet.";
+        }
+    }
+
+    private void openListRow(String type, String id) {
+        if ("ANNOUNCEMENTS".equals(type)) repository.markAnnouncementRead(id, true);
+        if ("NOTIFICATIONS".equals(type)) repository.markNotificationRead(id, true);
+        String destination;
+        switch (type) {
+            case "ANNOUNCEMENTS": destination = "DETAIL_ANNOUNCEMENT"; break;
+            case "RESIDENTS": destination = "DETAIL_RESIDENT"; break;
+            case "COMPLAINTS": destination = "DETAIL_COMPLAINT"; break;
+            case "REQUESTS": destination = "DETAIL_REQUEST"; break;
+            case "VISITORS": destination = "DETAIL_VISITOR"; break;
+            case "EVENTS": destination = "DETAIL_EVENT"; break;
+            case "EMERGENCY": destination = "DETAIL_EMERGENCY"; break;
+            case "NOTIFICATIONS": destination = "DETAIL_NOTIFICATION"; break;
+            case "DOCUMENTS": destination = "DETAIL_DOCUMENT"; break;
+            default: return;
+        }
+        navigate(destination, id);
+    }
+
+    private void showDetail(Route route, FrameLayout panel) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setClipToPadding(false);
+        LinearLayout content = verticalContent();
+        scroll.addView(content);
+        panel.addView(scroll);
+        switch (route.name) {
+            case "DETAIL_ANNOUNCEMENT": showAnnouncementDetail(content, route.id); break;
+            case "DETAIL_RESIDENT": showResidentDetail(content, route.id); break;
+            case "DETAIL_COMPLAINT": showComplaintDetail(content, route.id); break;
+            case "DETAIL_REQUEST": showRequestDetail(content, route.id); break;
+            case "DETAIL_VISITOR": showVisitorDetail(content, route.id); break;
+            case "DETAIL_EVENT": showEventDetail(content, route.id); break;
+            case "DETAIL_EMERGENCY": showEmergencyDetail(content, route.id); break;
+            case "DETAIL_NOTIFICATION": showNotificationDetail(content, route.id); break;
+            case "DETAIL_DOCUMENT": showDocumentDetail(content, route.id); break;
+        }
+    }
+
+    private void showAnnouncementDetail(LinearLayout content, String id) {
+        Announcement item = repository.findAnnouncement(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, item.priority + " priority · " + item.category);
+        addTopMargin(content, text(item.title, 25, R.color.text_primary, true), 12);
+        addTopMargin(content, text(item.createdAt + " · Cedar Grove Management", 13, R.color.text_secondary, false), 7);
+        addInfoCard(content, "ANNOUNCEMENT", item.description);
+        addInfoCard(content, "READ STATUS", item.read ? "Read in this demo session." : "Not yet read.");
+        MaterialButton toggle = fullButton(item.read ? "Mark as unread" : "Mark as read", false);
+        addTopMargin(content, toggle, 14);
+        toggle.setOnClickListener(v -> {
+            boolean markRead = !item.read;
+            repository.markAnnouncementRead(item.id, markRead);
+            Toast.makeText(this, markRead ? "Marked read" : "Marked unread", Toast.LENGTH_SHORT).show();
+            render();
+        });
+    }
+
+    private void showResidentDetail(LinearLayout content, String id) {
+        Resident item = repository.findResident(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, "Sample directory entry");
+        addTopMargin(content, text(item.name, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "APARTMENT", item.apartmentUnit);
+        addInfoCard(content, "HOUSEHOLD", item.household);
+        addInfoCard(content, "PRIVACY", "This fictional directory intentionally omits personal phone numbers and other private details.");
+    }
+
+    private void showComplaintDetail(LinearLayout content, String id) {
+        Complaint item = repository.findComplaint(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, item.status + " · " + item.priority + " priority");
+        addTopMargin(content, text(item.title, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "COMPLAINT " + item.id, item.category + " · Apartment " + item.apartmentUnit + "\nSubmitted " + item.createdAt + "\nLast updated " + item.updatedAt);
+        addInfoCard(content, "DESCRIPTION", item.description);
+        addSectionHeader(content, "Status history", null, null, 20);
+        for (String entry : item.history) addTimelineRow(content, entry);
+        CommunityRole role = repository.getCurrentUser().role;
+        if (role == CommunityRole.MAINTENANCE || role == CommunityRole.MANAGEMENT) {
+            MaterialButton action = fullButton(nextComplaintAction(item.status), true);
+            addTopMargin(content, action, 14);
+            action.setOnClickListener(v -> {
+                repository.advanceComplaint(item.id);
+                Toast.makeText(this, "Demo status updated to " + item.status, Toast.LENGTH_SHORT).show();
+                render();
+            });
+        } else {
+            addInfoCard(content, "NEXT STEP", "Management or maintenance staff can update this sample status in their own role preview.");
+        }
+    }
+
+    private void showRequestDetail(LinearLayout content, String id) {
+        ServiceRequest item = repository.findRequest(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, item.status);
+        addTopMargin(content, text(item.title, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "REQUEST " + item.id, item.category + " · Apartment " + item.apartmentUnit + "\nSubmitted " + item.createdAt);
+        addInfoCard(content, "DESCRIPTION", item.description);
+        if (repository.getCurrentUser().role == CommunityRole.MANAGEMENT) {
+            MaterialButton action = fullButton(nextRequestAction(item.status), true);
+            addTopMargin(content, action, 14);
+            action.setOnClickListener(v -> {
+                repository.advanceRequest(item.id);
+                Toast.makeText(this, "Demo request status updated to " + item.status, Toast.LENGTH_SHORT).show();
+                render();
+            });
+        } else {
+            addInfoCard(content, "STATUS", "Request status is sample data and is not synchronized with management.");
+        }
+    }
+
+    private void showVisitorDetail(LinearLayout content, String id) {
+        Visitor item = repository.findVisitor(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, item.status);
+        addTopMargin(content, text(item.name, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "VISIT DETAILS", "Host apartment " + item.hostUnit + "\nPurpose: " + item.purpose + "\nExpected: " + item.expectedArrival);
+        addSectionHeader(content, "Entry history", null, null, 18);
+        for (String entry : item.history) addTimelineRow(content, entry);
+        CommunityRole role = repository.getCurrentUser().role;
+        if (role == CommunityRole.SECURITY || role == CommunityRole.MANAGEMENT) {
+            MaterialButton action = fullButton(nextVisitorAction(item.status), true);
+            addTopMargin(content, action, 14);
+            action.setOnClickListener(v -> {
+                repository.advanceVisitor(item.id);
+                Toast.makeText(this, "Local demo status updated to " + item.status, Toast.LENGTH_SHORT).show();
+                render();
+            });
+        } else {
+            addInfoCard(content, "VISITOR STATUS", "Entry and exit status is a local demonstration and is not connected to a gate system.");
+        }
+    }
+
+    private void showEventDetail(LinearLayout content, String id) {
+        CommunityEvent item = repository.findEvent(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, item.upcoming ? (item.attending ? "You're going" : "Upcoming") : "Past event");
+        addTopMargin(content, text(item.title, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "WHEN AND WHERE", item.eventDateTime + "\n" + item.location);
+        addInfoCard(content, "ABOUT THIS EVENT", item.description);
+        if (item.upcoming) {
+            MaterialButton rsvp = fullButton(item.attending ? "Cancel demo RSVP" : "I'm interested", true);
+            addTopMargin(content, rsvp, 14);
+            rsvp.setOnClickListener(v -> {
+                boolean attending = !item.attending;
+                repository.setEventAttendance(item.id, attending);
+                Toast.makeText(this, attending ? "Demo RSVP saved" : "Demo RSVP removed", Toast.LENGTH_SHORT).show();
+                render();
+            });
+        }
+        addInfoCard(content, "DEMO NOTE", "RSVP is stored only in local in-memory state; organizers are not notified.");
+    }
+
+    private void showEmergencyDetail(LinearLayout content, String id) {
+        EmergencyContact item = repository.findEmergencyContact(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, item.availability);
+        addTopMargin(content, text(item.name, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "CONTACT", item.description + (item.phone.isEmpty() ? "\nNo verified phone number is configured." : "\n" + item.phone));
+        if (isDialable(item.phone)) {
+            MaterialButton call = fullButton("Open phone dialer · " + item.phone, true);
+            call.setIconResource(R.drawable.ic_phone);
+            addTopMargin(content, call, 14);
+            call.setOnClickListener(v -> openDialer(item.phone));
+        } else {
+            addInfoCard(content, "CALL ACTION", "No valid phone number is available, so dialing is disabled.");
+        }
+        addInfoCard(content, "REGION NOTE", "Public emergency numbers shown here are India-specific. Confirm the correct helpline for your location.");
+    }
+
+    private void showNotificationDetail(LinearLayout content, String id) {
+        CommunityNotification item = repository.findNotification(id);
+        if (item == null) { addNotFound(content); return; }
+        repository.markNotificationRead(id, true);
+        addPill(content, item.category + " · Read");
+        addTopMargin(content, text(item.title, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "MESSAGE", item.message + "\n" + item.createdAt);
+        String destination = item.destination;
+        if (destination != null && !destination.isEmpty()) {
+            MaterialButton open = fullButton("Open related module", true);
+            addTopMargin(content, open, 14);
+            open.setOnClickListener(v -> navigate(destination));
+        }
+        addInfoCard(content, "DELIVERY", "This is an in-app sample notification. Push notifications are not implemented.");
+    }
+
+    private void showDocumentDetail(LinearLayout content, String id) {
+        CommunityDocument item = repository.findDocument(id);
+        if (item == null) { addNotFound(content); return; }
+        addPill(content, item.category + " · Sample listing");
+        addTopMargin(content, text(item.title, 25, R.color.text_primary, true), 12);
+        addInfoCard(content, "ABOUT", item.description);
+        addInfoCard(content, "FILE INFORMATION", item.metadata + "\nNo document file is bundled with this demo.");
+        MaterialButton unavailable = fullButton("Preview not available", false);
+        unavailable.setEnabled(false);
+        unavailable.setAlpha(0.7f);
+        addTopMargin(content, unavailable, 14);
+    }
+
+    private String nextComplaintAction(String status) {
+        if ("Open".equals(status)) return "Start work · move to In Progress";
+        if ("In Progress".equals(status)) return "Mark as Resolved";
+        return "Reopen demo complaint";
+    }
+
+    private String nextRequestAction(String status) {
+        if ("Open".equals(status)) return "Schedule request";
+        if ("Scheduled".equals(status)) return "Mark as Completed";
+        return "Reopen demo request";
+    }
+
+    private String nextVisitorAction(String status) {
+        if ("Expected".equals(status)) return "Approve visitor";
+        if ("Approved".equals(status)) return "Record check-in";
+        if ("Checked in".equals(status)) return "Record check-out";
+        return "Reset to Expected";
+    }
+
+    private void showComplaintForm(FrameLayout panel) {
+        LinearLayout content = formContent(panel, "Tell the community team what needs attention.");
+        Field title = createField("Issue title", "For example, lift door not closing", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        Field description = createField("Description", "Add a few details to help the team", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, true);
+        description.input.setMinLines(3);
+        Field unit = createField("Apartment / area", "Apartment or common area", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, false);
+        unit.input.setText(safe(repository.getCurrentUser().apartmentUnit, "Common area"));
+        addField(content, title);
+        addField(content, description);
+        Spinner category = addSpinner(content, "Category", new String[]{"Plumbing", "Electrical", "Elevator", "Facilities", "Cleaning", "Other"});
+        Spinner priority = addSpinner(content, "Priority", new String[]{"Normal", "High", "Low"});
+        addField(content, unit);
+        TextView note = text("The complaint is added to this device's in-memory demo state only.", 12, R.color.text_muted, false);
+        addTopMargin(content, note, 2);
+        MaterialButton submit = fullButton("Submit complaint", true);
+        addTopMargin(content, submit, 18);
+        submit.setOnClickListener(v -> {
+            boolean valid = true;
+            if (title.value().length() < 3) { title.error("Enter a short issue title"); valid = false; } else title.error(null);
+            if (description.value().length() < 8) { description.error("Add a little more detail"); valid = false; } else description.error(null);
+            if (unit.value().isEmpty()) { unit.error("Enter an apartment or area"); valid = false; } else unit.error(null);
+            if (!valid) return;
+            hideKeyboard();
+            Complaint created = repository.addComplaint(title.value(), description.value(), selected(category), selected(priority), unit.value());
+            Toast.makeText(this, "Complaint added to the local demo list", Toast.LENGTH_SHORT).show();
+            replaceCurrent("COMPLAINTS", "");
+        });
+    }
+
+    private void showRequestForm(FrameLayout panel) {
+        LinearLayout content = formContent(panel, "Send a request to the community team.");
+        Field title = createField("Request title", "For example, reserve the community room", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        Field description = createField("Description", "What do you need help with?", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, true);
+        description.input.setMinLines(3);
+        Field unit = createField("Apartment / unit", "Your apartment or unit", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, false);
+        unit.input.setText(safe(repository.getCurrentUser().apartmentUnit, ""));
+        addField(content, title);
+        addField(content, description);
+        Spinner category = addSpinner(content, "Request category", new String[]{"Amenity booking", "Parcel assistance", "Move-in / move-out", "Common area", "Other"});
+        addField(content, unit);
+        MaterialButton submit = fullButton("Submit service request", true);
+        addTopMargin(content, submit, 16);
+        submit.setOnClickListener(v -> {
+            boolean valid = true;
+            if (title.value().length() < 3) { title.error("Enter a request title"); valid = false; } else title.error(null);
+            if (description.value().length() < 8) { description.error("Describe what you need"); valid = false; } else description.error(null);
+            if (unit.value().isEmpty()) { unit.error("Enter your apartment or unit"); valid = false; } else unit.error(null);
+            if (!valid) return;
+            hideKeyboard();
+            repository.addRequest(title.value(), description.value(), selected(category), unit.value());
+            Toast.makeText(this, "Service request added locally", Toast.LENGTH_SHORT).show();
+            replaceCurrent("REQUESTS", "");
+        });
+    }
+
+    private void showVisitorForm(FrameLayout panel) {
+        LinearLayout content = formContent(panel, "Register an expected visit for this local demo.");
+        Field name = createField("Visitor name", "Full name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, false);
+        Field unit = createField("Host apartment / unit", "For example, C-204", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, false);
+        unit.input.setText(safe(repository.getCurrentUser().apartmentUnit, ""));
+        Field purpose = createField("Visit purpose", "Guest, delivery, service visit…", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        Calendar arrival = Calendar.getInstance();
+        arrival.add(Calendar.HOUR_OF_DAY, 1);
+        TextView arrivalValue = text(formatArrival(arrival), 14, R.color.text_primary, true);
+        MaterialButton chooseTime = fullButton("Change expected date and time", false);
+        chooseTime.setOnClickListener(v -> {
+            DatePickerDialog datePicker = new DatePickerDialog(this, (view, year, month, day) -> {
+                arrival.set(Calendar.YEAR, year);
+                arrival.set(Calendar.MONTH, month);
+                arrival.set(Calendar.DAY_OF_MONTH, day);
+                TimePickerDialog timePicker = new TimePickerDialog(this, (timeView, hour, minute) -> {
+                    arrival.set(Calendar.HOUR_OF_DAY, hour);
+                    arrival.set(Calendar.MINUTE, minute);
+                    arrival.set(Calendar.SECOND, 0);
+                    arrivalValue.setText(formatArrival(arrival));
+                }, arrival.get(Calendar.HOUR_OF_DAY), arrival.get(Calendar.MINUTE), android.text.format.DateFormat.is24HourFormat(this));
+                timePicker.show();
+            }, arrival.get(Calendar.YEAR), arrival.get(Calendar.MONTH), arrival.get(Calendar.DAY_OF_MONTH));
+            datePicker.getDatePicker().setMinDate(System.currentTimeMillis() - 1000L);
+            datePicker.show();
+        });
+        addField(content, name);
+        addField(content, unit);
+        addField(content, purpose);
+        addSectionHeader(content, "Expected arrival", null, null, 4);
+        content.addView(arrivalValue);
+        addTopMargin(content, chooseTime, 8);
+        MaterialButton submit = fullButton("Save visitor", true);
+        addTopMargin(content, submit, 18);
+        submit.setOnClickListener(v -> {
+            boolean valid = true;
+            if (name.value().length() < 2) { name.error("Enter the visitor's name"); valid = false; } else name.error(null);
+            if (unit.value().isEmpty()) { unit.error("Enter the host apartment or unit"); valid = false; } else unit.error(null);
+            if (purpose.value().isEmpty()) { purpose.error("Enter the visit purpose"); valid = false; } else purpose.error(null);
+            if (!valid) return;
+            hideKeyboard();
+            repository.addVisitor(name.value(), unit.value(), purpose.value(), formatArrival(arrival));
+            Toast.makeText(this, "Visitor saved to the local demo list", Toast.LENGTH_SHORT).show();
+            replaceCurrent("VISITORS", "");
+        });
+    }
+
+    private String formatArrival(Calendar calendar) {
+        String date = DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).format(calendar.getTime());
+        String time = DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(calendar.getTime());
+        return date + " · " + time;
+    }
+
+    private void showAnnouncementForm(FrameLayout panel) {
+        LinearLayout content = formContent(panel, "Publish a fictional announcement in this local management preview.");
+        Field title = createField("Announcement title", "A clear, helpful title", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        Field description = createField("Announcement details", "Share the update with residents", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, true);
+        description.input.setMinLines(4);
+        addField(content, title);
+        addField(content, description);
+        Spinner category = addSpinner(content, "Category", new String[]{"Facilities", "Community", "Events"});
+        Spinner priority = addSpinner(content, "Priority", new String[]{"Normal", "Important"});
+        MaterialButton publish = fullButton("Publish demo announcement", true);
+        addTopMargin(content, publish, 14);
+        publish.setOnClickListener(v -> {
+            boolean valid = true;
+            if (title.value().length() < 3) { title.error("Enter a title"); valid = false; } else title.error(null);
+            if (description.value().length() < 8) { description.error("Add announcement details"); valid = false; } else description.error(null);
+            if (!valid) return;
+            hideKeyboard();
+            repository.addAnnouncement(title.value(), description.value(), selected(category), selected(priority));
+            Toast.makeText(this, "Announcement published in local demo state", Toast.LENGTH_SHORT).show();
+            replaceCurrent("ANNOUNCEMENTS", "");
+        });
+    }
+
+    private void showEventForm(FrameLayout panel) {
+        LinearLayout content = formContent(panel, "Create an event for the current management preview only.");
+        Field title = createField("Event title", "For example, courtyard coffee morning", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        Field description = createField("Description", "What should residents know?", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, true);
+        description.input.setMinLines(3);
+        Field location = createField("Location", "Community room, garden…", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        Field dateTime = createField("Date and time", "For example, Sat, Oct 24 · 10:00 AM", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        addField(content, title);
+        addField(content, description);
+        addField(content, location);
+        addField(content, dateTime);
+        MaterialButton create = fullButton("Create demo event", true);
+        addTopMargin(content, create, 14);
+        create.setOnClickListener(v -> {
+            boolean valid = true;
+            if (title.value().length() < 3) { title.error("Enter an event title"); valid = false; } else title.error(null);
+            if (description.value().length() < 8) { description.error("Add event details"); valid = false; } else description.error(null);
+            if (location.value().isEmpty()) { location.error("Enter an event location"); valid = false; } else location.error(null);
+            if (dateTime.value().isEmpty()) { dateTime.error("Enter the event date and time"); valid = false; } else dateTime.error(null);
+            if (!valid) return;
+            hideKeyboard();
+            repository.addEvent(title.value(), description.value(), location.value(), dateTime.value());
+            Toast.makeText(this, "Event created in local demo state", Toast.LENGTH_SHORT).show();
+            replaceCurrent("EVENTS", "");
+        });
+    }
+
+    private void showResidentForm(FrameLayout panel) {
+        LinearLayout content = formContent(panel, "Add a fictional directory entry in the management preview.");
+        Field name = createField("Resident name", "Full name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, false);
+        Field unit = createField("Apartment / unit", "For example, A-204", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, false);
+        Field household = createField("Household summary", "For example, 2 residents", InputType.TYPE_CLASS_TEXT, false);
+        household.input.setText("1 resident");
+        addField(content, name);
+        addField(content, unit);
+        addField(content, household);
+        MaterialButton save = fullButton("Add sample resident", true);
+        addTopMargin(content, save, 14);
+        save.setOnClickListener(v -> {
+            boolean valid = true;
+            if (name.value().length() < 2) { name.error("Enter a name"); valid = false; } else name.error(null);
+            if (unit.value().isEmpty()) { unit.error("Enter an apartment unit"); valid = false; } else unit.error(null);
+            if (!valid) return;
+            repository.addResident(name.value(), unit.value(), safe(household.value(), "Resident"));
+            Toast.makeText(this, "Sample directory entry added", Toast.LENGTH_SHORT).show();
+            replaceCurrent("RESIDENTS", "");
+        });
+    }
+
+    private void showProfileForm(FrameLayout panel) {
+        LinearLayout content = formContent(panel, "Edit the information shown in this local demo session.");
+        User user = repository.getCurrentUser();
+        Field name = createField("Full name", "Your name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, false);
+        Field email = createField("Email address", "name@example.com", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, false);
+        Field unit = createField("Apartment / unit", "For example, C-204", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, false);
+        name.input.setText(user.name);
+        email.input.setText(user.email);
+        unit.input.setText(user.apartmentUnit);
+        addField(content, name);
+        addField(content, email);
+        addField(content, unit);
+        MaterialButton save = fullButton("Save demo profile", true);
+        addTopMargin(content, save, 14);
+        save.setOnClickListener(v -> {
+            boolean valid = true;
+            if (name.value().length() < 2) { name.error("Enter your name"); valid = false; } else name.error(null);
+            if (!Patterns.EMAIL_ADDRESS.matcher(email.value()).matches()) { email.error("Enter a valid email address"); valid = false; } else email.error(null);
+            if (unit.value().isEmpty()) { unit.error("Enter an apartment unit"); valid = false; } else unit.error(null);
+            if (!valid) return;
+            repository.updateProfile(name.value(), email.value(), unit.value());
+            Toast.makeText(this, "Demo profile updated", Toast.LENGTH_SHORT).show();
+            replaceCurrent("PROFILE", "");
+        });
+    }
+
+    private LinearLayout formContent(FrameLayout panel, String intro) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setClipToPadding(false);
+        LinearLayout content = verticalContent();
+        content.addView(text(intro, 13, R.color.text_secondary, false));
+        scroll.addView(content);
+        panel.addView(scroll);
+        return content;
+    }
+
+    private void addField(LinearLayout parent, Field field) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(12);
+        parent.addView(field.layout, params);
+    }
+
+    private Spinner addSpinner(LinearLayout parent, String label, String[] values) {
+        TextView labelView = text(label, 12, R.color.text_secondary, true);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelParams.topMargin = dp(12);
+        parent.addView(labelView, labelParams);
+        Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, values);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setPadding(dp(12), dp(4), dp(12), dp(4));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        params.topMargin = dp(4);
+        parent.addView(spinner, params);
+        return spinner;
+    }
+
+    private String selected(Spinner spinner) {
+        Object item = spinner.getSelectedItem();
+        return item == null ? "" : item.toString();
+    }
+
+    private boolean canAdd(String route) {
+        CommunityRole role = repository.getCurrentUser().role;
+        if ("ANNOUNCEMENTS".equals(route) || "EVENTS".equals(route) || "RESIDENTS".equals(route)) return role == CommunityRole.MANAGEMENT;
+        if ("COMPLAINTS".equals(route) || "REQUESTS".equals(route) || "VISITORS".equals(route)) return role == CommunityRole.RESIDENT || role == CommunityRole.MANAGEMENT;
+        return false;
+    }
+
+    private void onAdd(String route) {
+        if (!canAdd(route)) return;
+        switch (route) {
+            case "COMPLAINTS": navigate("FORM_COMPLAINT"); break;
+            case "REQUESTS": navigate("FORM_REQUEST"); break;
+            case "VISITORS": navigate("FORM_VISITOR"); break;
+            case "ANNOUNCEMENTS": navigate("FORM_ANNOUNCEMENT"); break;
+            case "EVENTS": navigate("FORM_EVENT"); break;
+            case "RESIDENTS": navigate("FORM_RESIDENT"); break;
+        }
+    }
+
+    private void addActionGrid(LinearLayout parent, List<Tile> tiles) {
+        for (int i = 0; i < tiles.size(); i += 2) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            Tile first = tiles.get(i);
+            row.addView(actionTile(first), new LinearLayout.LayoutParams(0, dp(137), 1f));
+            if (i + 1 < tiles.size()) {
+                LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, dp(137), 1f);
+                secondParams.leftMargin = dp(10);
+                row.addView(actionTile(tiles.get(i + 1)), secondParams);
+            } else {
+                View spacer = new View(this);
+                LinearLayout.LayoutParams spacerParams = new LinearLayout.LayoutParams(0, dp(137), 1f);
+                spacerParams.leftMargin = dp(10);
+                row.addView(spacer, spacerParams);
+            }
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rowParams.topMargin = dp(9);
+            parent.addView(row, rowParams);
+        }
+    }
+
+    private View actionTile(Tile tile) {
+        View root = LayoutInflater.from(this).inflate(R.layout.view_action_tile, null, false);
+        MaterialCardView card = root.findViewById(R.id.actionTileCard);
+        ImageView icon = root.findViewById(R.id.actionIcon);
+        icon.setImageResource(tile.icon);
+        icon.setColorFilter(color(R.color.primary));
+        ((TextView) root.findViewById(R.id.actionTitle)).setText(tile.title);
+        ((TextView) root.findViewById(R.id.actionCaption)).setText(tile.caption);
+        card.setContentDescription(tile.title + ". " + tile.caption);
+        card.setOnClickListener(v -> navigate(tile.destination));
+        return root;
+    }
+
+    private MaterialCardView compactInfoCard(String title, String subtitle, String badgeText) {
+        MaterialCardView card = card();
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        row.addView(copy, copyParams);
+        copy.addView(text(title, 14, R.color.text_primary, true));
+        TextView sub = text(subtitle, 11, R.color.text_secondary, false);
+        addTopMargin(copy, sub, 4);
+        TextView badge = text(badgeText, 10, R.color.primary, true);
+        badge.setPadding(dp(8), dp(5), dp(8), dp(5));
+        badge.setBackground(shape(color(R.color.primary_light), dp(20), color(R.color.primary_light), 0));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        badgeParams.leftMargin = dp(8);
+        row.addView(badge, badgeParams);
+        card.addView(row);
+        return card;
+    }
+
+    private void addSectionHeader(LinearLayout parent, String title, String action, Runnable onAction, int topMargin) {
+        View root = LayoutInflater.from(this).inflate(R.layout.view_section_header, parent, false);
+        TextView heading = root.findViewById(R.id.sectionTitle);
+        TextView actionView = root.findViewById(R.id.sectionAction);
+        heading.setText(title);
+        if (action != null) {
+            actionView.setText(action);
+            actionView.setVisibility(View.VISIBLE);
+            actionView.setOnClickListener(v -> { if (onAction != null) onAction.run(); });
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(topMargin);
+        parent.addView(root, params);
+    }
+
+    private void addInfoCard(LinearLayout parent, String heading, String body) {
+        View root = LayoutInflater.from(this).inflate(R.layout.view_info_card, parent, false);
+        MaterialCardView card = root.findViewById(R.id.infoCard);
+        ((TextView) root.findViewById(R.id.infoHeading)).setText(heading);
+        ((TextView) root.findViewById(R.id.infoBody)).setText(body);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(10);
+        parent.addView(card, params);
+    }
+
+    private void addPill(LinearLayout parent, String label) {
+        TextView pill = text(label, 11, R.color.primary, true);
+        pill.setPadding(dp(11), dp(7), dp(11), dp(7));
+        pill.setBackground(shape(color(R.color.primary_light), dp(22), color(R.color.primary_light), 0));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(6);
+        parent.addView(pill, params);
+    }
+
+    private void addTimelineRow(LinearLayout parent, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        View dot = new View(this);
+        dot.setBackground(shape(color(R.color.primary), dp(8), color(R.color.primary), 0));
+        row.addView(dot, new LinearLayout.LayoutParams(dp(8), dp(8)));
+        TextView label = text(value, 13, R.color.text_secondary, false);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelParams.leftMargin = dp(10);
+        row.addView(label, labelParams);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.topMargin = dp(9);
+        parent.addView(row, rowParams);
+    }
+
+    private void addKeyValue(LinearLayout parent, String key, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        TextView label = text(key, 11, R.color.text_muted, true);
+        row.addView(label);
+        TextView content = text(value, 14, R.color.text_primary, false);
+        addTopMargin(row, content, 3);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(14);
+        parent.addView(row, params);
+    }
+
+    private void addNotFound(LinearLayout content) {
+        content.addView(text("This sample item is no longer available. Go back to the list and try another entry.", 15, R.color.text_secondary, false));
+    }
+
+    private void confirmLogout() {
+        new AlertDialog.Builder(this)
+                .setTitle("Return to entry screen?")
+                .setMessage("Your role preview will end. Local demo changes remain only until the app process is closed.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Return", (dialog, which) -> {
+                    repository.resetRole();
+                    rootRoute("LOGIN");
+                })
+                .show();
+    }
+
+    private void openDialer(String number) {
+        if (!isDialable(number)) {
+            Toast.makeText(this, "No valid phone number is available", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number.trim(), null));
+        try { startActivity(intent); }
+        catch (Exception exception) { Toast.makeText(this, "No dialer app is available", Toast.LENGTH_SHORT).show(); }
+    }
+
+    private boolean isDialable(String number) {
+        if (number == null || number.trim().isEmpty()) return false;
+        int digits = 0;
+        String allowedSeparators = " ()-./";
+        for (int i = 0; i < number.length(); i++) {
+            char character = number.charAt(i);
+            if (Character.isDigit(character)) digits++;
+            else if (character == '+' && i == 0) { /* international prefix */ }
+            else if (allowedSeparators.indexOf(character) < 0) return false;
+        }
+        return digits >= 3 && digits <= 15;
+    }
+
+    private MaterialButton fullButton(String label, boolean primary) {
+        MaterialButton button = new MaterialButton(this);
+        button.setText(label);
+        button.setTextSize(14);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setCornerRadius(dp(14));
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setMinHeight(dp(50));
+        button.setAllCaps(false);
+        button.setBackgroundTintList(ColorStateList.valueOf(color(primary ? R.color.primary : R.color.surface)));
+        button.setTextColor(color(primary ? R.color.white : R.color.primary));
+        if (!primary) {
+            button.setStrokeWidth(dp(1));
+            button.setStrokeColor(ColorStateList.valueOf(color(R.color.outline)));
+        }
+        button.setPadding(dp(16), dp(10), dp(16), dp(10));
+        button.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return button;
+    }
+
+    private MaterialButton smallButton(String label, boolean primary) {
+        MaterialButton button = new MaterialButton(this);
+        button.setText(label);
+        button.setTextSize(12);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setCornerRadius(dp(12));
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setMinHeight(dp(40));
+        button.setAllCaps(false);
+        button.setBackgroundTintList(ColorStateList.valueOf(color(primary ? R.color.primary : R.color.surface)));
+        button.setTextColor(color(primary ? R.color.white : R.color.primary));
+        if (!primary) {
+            button.setStrokeWidth(dp(1));
+            button.setStrokeColor(ColorStateList.valueOf(color(R.color.outline)));
+        }
+        return button;
+    }
+
+    private MaterialButton textButton(String label) {
+        MaterialButton button = new MaterialButton(this);
+        button.setText(label);
+        button.setTextSize(12);
+        button.setTextColor(color(R.color.primary));
+        button.setAllCaps(false);
+        button.setBackgroundTintList(ColorStateList.valueOf(Color.TRANSPARENT));
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        return button;
+    }
+
+    private Field createField(String label, String hint, int inputType, boolean multiline) {
+        TextInputLayout layout = new TextInputLayout(this);
+        layout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        layout.setBoxBackgroundColor(color(R.color.surface));
+        layout.setBoxStrokeColor(color(R.color.outline));
+        layout.setHint(label == null || label.isEmpty() ? null : label);
+        layout.setBoxCornerRadii(dp(13), dp(13), dp(13), dp(13));
+        TextInputEditText input = new TextInputEditText(layout.getContext());
+        input.setTextSize(15);
+        input.setTextColor(color(R.color.text_primary));
+        input.setHintTextColor(color(R.color.text_muted));
+        input.setInputType(inputType);
+        input.setPadding(dp(14), dp(13), dp(14), dp(12));
+        input.setHint(hint);
+        if (!multiline) input.setSingleLine(true);
+        else input.setGravity(Gravity.TOP | Gravity.START);
+        layout.addView(input, new TextInputLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return new Field(layout, input);
+    }
+
+    private ImageButton iconButton(@DrawableRes int icon, String description) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(icon);
+        button.setColorFilter(color(R.color.primary_dark));
+        button.setContentDescription(description);
+        button.setScaleType(ImageView.ScaleType.CENTER);
+        android.util.TypedValue selectable = new android.util.TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, selectable, true)
+                && selectable.resourceId != 0) {
+            button.setBackgroundResource(selectable.resourceId);
+        } else {
+            button.setBackgroundColor(Color.TRANSPARENT);
+        }
+        return button;
+    }
+
+    private MaterialCardView card() {
+        MaterialCardView card = new MaterialCardView(this);
+        card.setCardBackgroundColor(color(R.color.surface));
+        card.setStrokeColor(color(R.color.outline));
+        card.setStrokeWidth(dp(1));
+        card.setRadius(dp(16));
+        card.setCardElevation(dp(1));
+        return card;
+    }
+
+    private LinearLayout verticalContent() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(10), dp(20), dp(26));
+        return content;
+    }
+
+    private TextView text(String value, int sizeSp, int colorResource, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value == null ? "" : value);
+        view.setTextSize(sizeSp);
+        view.setTextColor(color(colorResource));
+        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        return view;
+    }
+
+    private GradientDrawable shape(int fill, int radius, int stroke, int strokeWidth) {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(fill);
+        background.setCornerRadius(radius);
+        if (strokeWidth > 0) background.setStroke(strokeWidth, stroke);
+        return background;
+    }
+
+    private void addTopMargin(ViewGroup parent, View child, int marginDp) {
+        ViewGroup.LayoutParams existing = child.getLayoutParams();
+        LinearLayout.LayoutParams params;
+        if (existing instanceof LinearLayout.LayoutParams) {
+            params = (LinearLayout.LayoutParams) existing;
+        } else if (existing != null) {
+            params = new LinearLayout.LayoutParams(existing);
+        } else {
+            params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        params.topMargin = dp(marginDp);
+        if (child.getParent() == null) {
+            parent.addView(child, params);
+        } else if (child.getParent() == parent) {
+            child.setLayoutParams(params);
+        }
+    }
+
+    private int color(int resource) { return ContextCompat.getColor(this, resource); }
+    private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+
+    private String safe(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value;
+    }
+
+    private String snip(String value, int length) {
+        if (value == null || value.length() <= length) return value == null ? "" : value;
+        return value.substring(0, length).trim() + "…";
+    }
+
+    private String initials(String value) {
+        if (value == null || value.trim().isEmpty()) return "CG";
+        String[] parts = value.trim().split("\\s+");
+        if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase(Locale.getDefault());
+        return (parts[0].substring(0, 1) + parts[parts.length - 1].substring(0, 1)).toUpperCase(Locale.getDefault());
+    }
+
+    private void hideKeyboard() {
+        try {
+            InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            View focus = getCurrentFocus();
+            if (manager != null && focus != null) manager.hideSoftInputFromWindow(focus.getWindowToken(), 0);
+        } catch (Exception ignored) { }
     }
 }

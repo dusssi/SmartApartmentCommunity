@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Smart Community</string>
+    <string name="community_name">Cedar Grove Residences</string>
+    <string name="demo_disclaimer">Interactive local demonstration · no account or data is sent to a server</string>
+</resources>
