@@ -1,108 +1,118 @@
 # Smart Apartment Community Management Platform
 
-A native Android (Java/XML) frontend for demonstrating common apartment-community workflows. The current app is a **local demonstration**, not a production account or records service. It uses fictional seed data and an in-memory repository; no backend, network API, push delivery, or multi-device synchronization is present.
+A native Android (Java/XML) application for apartment-community workflows, now with **Stitch-inspired UI** and **persistent local storage**.
+
+This implementation replaces the previous in-memory demo with durable SharedPreferences + JSON persistence, comprehensive validation, and a blue/teal design system matching the Stitch brief (blue primary #2563EB, teal accents, neutral backgrounds, rounded cards).
+
+No backend is bundled — data stays on device until Spring Boot + MySQL backend is provisioned. API contracts are defined for future integration.
 
 ## What is included
 
-- Demo login, registration and password-recovery interfaces, plus a direct role-preview entry.
-- Four role-aware experiences: Resident, Management, Security and Maintenance.
-- Home dashboard, community hub, role-specific services navigation, profile and local preferences.
-- Searchable/filterable RecyclerView modules for residents, announcements, complaints, service requests, visitors, events, emergency contacts, notifications and document listings.
-- Local form workflows for complaints, requests, visitors, management announcements/events/residents; status changes, read states, profile edits and event RSVP update the current in-memory demo state.
-- System dialer hand-off (`ACTION_DIAL`) for configured public emergency numbers; no call permission is requested.
-- Reusable XML layouts and Material Components, fictional records, form validation and empty states.
+- **Authentication:** Registration with email uniqueness, login with registered check, forgot password with local reset note, role selection (Resident, Management, Security, Maintenance) persisted
+- **Four role-aware experiences:** Resident, Management, Security, Maintenance with role-specific navigation and actions
+- **Home dashboard:** Greeting, real stats from persistent data (open issues, visitors, new updates), quick access grid, recent updates, upcoming events
+- **Searchable/filterable lists:** Residents, announcements, complaints, service requests, visitors, events, emergency contacts, notifications, documents — all backed by PersistentRepository
+- **Form workflows:** Complaints, requests, visitors, announcements, events, residents, profile edits — all validated (required, email format, phone 7-15 digits, password 6+, date not past, unit uniqueness, file type/size), with loading states and duplicate prevention
+- **Detail screens:** Status history timelines, read/unread toggles, RSVP, dialer hand-off via ACTION_DIAL (no CALL permission)
+- **Persistence:** SharedPreferences JSON for all lists + user, survives restart, seed on first launch
+- **Design system:** Blue primary #2563EB, teal #0D9488 secondary, neutral #F8FAFC background, slate text hierarchy, 16dp cards, 52dp buttons, 48dp touch targets, Material 3 Light theme
+- **API abstraction:** ApiConfig with configurable base URL (default placeholder), ApiModels for Spring Boot contracts, no hardcoded credentials
 
-## Design system and motion (Phase 2 UI)
+## Design system and motion (Stitch-inspired)
 
-- Design tokens live in `app/src/main/res/values/` (`colors.xml`, `dimens.xml`, `styles.xml`, `themes.xml`). The palette is a provisional deep-emerald / warm off-white direction. **No Google Stitch exports were in the repository, so this is not a Stitch-faithful implementation.** See [docs/UI_UX_AUDIT.md](docs/UI_UX_AUDIT.md).
-- Reusable motion helpers are in `app/src/main/java/com/apartment/community/ui/Motion.java`. They use short fade/slide, staggered reveal and press-scale transforms, and respect the system animator-duration setting. See [docs/ANIMATIONS.md](docs/ANIMATIONS.md).
-- The app uses the Material 3 **light** theme only. Dark mode is not supported.
-- Edge-to-edge: system bars and display cutouts are padded at the root, and the keyboard inset is applied to the content. The bottom navigation hides while the keyboard is open.
+- Design tokens live in `app/src/main/res/values/` (`colors.xml`, `dimens.xml`, `styles.xml`, `themes.xml`). Palette is now **Stitch-inspired**: blue primary, teal accents, neutral backgrounds, rounded cards, clear typography. See [docs/UI_UX_AUDIT.md](docs/UI_UX_AUDIT.md) and [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).
+- Reusable motion helpers in `app/src/main/java/com/apartment/community/ui/Motion.java` — short fade/slide, staggered reveal, press-scale, respects animator-duration setting. See [docs/ANIMATIONS.md](docs/ANIMATIONS.md).
+- Material 3 **light** theme only. Dark mode not supported.
+- Edge-to-edge: system bars and display cutouts padded at root, keyboard inset applied to content, bottom navigation hides while keyboard is open.
+- New validation utility: `app/src/main/java/com/apartment/community/util/Validation.java`
+- New persistent repository: `app/src/main/java/com/apartment/community/repository/PersistentRepository.java`
+- New API config: `app/src/main/java/com/apartment/community/api/ApiConfig.java` and `ApiModels.java`
 
-Documentation: [UI/UX audit](docs/UI_UX_AUDIT.md) · [Design system](docs/DESIGN_SYSTEM.md) · [Animations](docs/ANIMATIONS.md) · [Features](docs/FEATURES.md) · [Testing](docs/TESTING.md).
+Documentation: [Implementation checklist](docs/IMPLEMENTATION_CHECKLIST.md) · [Final report](docs/FINAL_REPORT.md) · [UI/UX audit](docs/UI_UX_AUDIT.md) · [Design system](docs/DESIGN_SYSTEM.md) · [Animations](docs/ANIMATIONS.md) · [Features](docs/FEATURES.md) · [Testing](docs/TESTING.md).
 
 ## Technology
 
-- Java 17 language compatibility, Android Views and XML resources.
-- Android Gradle Plugin 8.6.1, Gradle wrapper 8.7, compile/target SDK 35, minimum SDK 24.
-- AndroidX AppCompat, Material Components, ConstraintLayout and RecyclerView.
-- In-memory `DemoRepository`; no Spring Boot or MySQL implementation is included.
+- Java 17, Android Views and XML, single-activity architecture
+- Android Gradle Plugin 8.6.1, Gradle wrapper 8.7, compile/target SDK 35, min SDK 24
+- AndroidX AppCompat, Material Components, ConstraintLayout, RecyclerView
+- **PersistentRepository** (SharedPreferences + org.json) — replaces DemoRepository (kept for backward compat)
+- **Validation** utility with comprehensive field checks
+- **ApiConfig/ApiModels** for future Spring Boot + MySQL integration (backend not included)
+- No extra dependencies — org.json is Android built-in
 
 ## Prerequisites
 
-- JDK 17.
-- Android SDK Platform 35 and compatible Android Build Tools installed.
-- Android Studio (recommended) or the command-line Android SDK tools.
-- For device installation: USB debugging enabled and `adb` available.
+- JDK 17
+- Android SDK Platform 35 and Build Tools
+- Android Studio or command-line SDK tools
+- For device: USB debugging + adb
 
-Configure `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) and, if needed, a machine-local `local.properties`. `local.properties` is ignored and must not be committed.
+Configure `ANDROID_HOME` and local.properties (ignored, not committed).
 
 ## Build
-
-From the repository root:
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-The debug APK is produced at:
+APK at `app/build/outputs/apk/debug/app-debug.apk`
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-To build and run unit tests if added later:
-
+Unit tests (if added):
 ```bash
 ./gradlew test
 ```
 
-No automated Android test suite is currently configured. See [docs/TESTING.md](docs/TESTING.md) for the manual checklist and the verification state for this checkout.
-
-Static checks that do not need the Android SDK:
-
+Static checks without SDK:
 ```bash
-python3 scripts/verify_resources.py   # XML well-formedness and resource references
+python3 scripts/verify_resources.py
 ```
 
-The Gradle build has **not** been verified in the Phase 2 environment (no JDK or Android SDK was available). Run `./gradlew assembleDebug` before relying on this change.
+**Note:** Gradle build not verified in this environment (no JDK/SDK). Run locally.
 
 ## Install
-
-With an Android device/emulator connected:
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Open **Smart Community** from the launcher. On Android Studio, select the `app` configuration and run it on an API 24+ device/emulator.
+Open **Smart Community** launcher. In Android Studio, run `app` config on API 24+ device/emulator.
 
-## Demo walkthrough
+## Walkthrough (persistent)
 
-1. Choose **Explore demo roles**, or use any valid email and any password of at least six characters on the demo login screen. These values are only validated locally; they are not sent or stored as credentials.
-2. Choose a role preview. The selected role appears in the app chrome and affects the visible navigation/actions. The selector is explicitly **not** a security boundary.
-3. Use the dashboard cards or bottom navigation to browse the modules.
-4. As a Resident, submit a complaint, service request or expected visitor. New records appear in the relevant list for the current app process.
-5. As Management, add a sample announcement, event or directory entry and update supported workflow statuses.
-6. As Security, inspect a visitor and advance its local status through approval/check-in/check-out. As Maintenance, advance complaint statuses.
-7. Try list search/filter chips, announcement/notification read state, event RSVP, profile editing and the dialer hand-off.
-8. In Documents, sample metadata is shown but the preview action is disabled because no files are bundled.
+1. **Create account:** Full name 2-50 chars, email format + uniqueness, password 6+ chars + confirm, apartment unit 1-20 chars (e.g., C-204), phone optional 7-15 digits. Shows loading, saves to SharedPreferences.
+2. **Sign in:** Email must be registered, password 6+ chars. Loads registered name/unit, goes to role picker.
+3. **Choose role:** Resident, Management, Security, Maintenance — determines navigation and actions. Persists.
+4. **Home:** Real stats from persistent data, quick access grid, recent updates, upcoming event.
+5. **As Resident:** Submit complaint (title 3-100, description 8-500, unit, category), service request, visitor (name, unit, purpose 2-100, phone optional, date not past). New records persist across restart.
+6. **As Management:** Add announcement (title 3-100, details 8-1000, category, priority), event (title, description, location, datetime), resident (name, unit uniqueness enforced, household). Advance complaint/request/visitor status.
+7. **As Security:** View visitors, advance Expected→Approved→Checked in→Checked out, view emergency contacts with dialer.
+8. **As Maintenance:** View complaints queue, advance Open→In Progress→Resolved.
+9. **Search/filter:** All lists have search hint + filter chips (All, status, tower, etc.), empty states centered.
+10. **Profile:** Edit name, email, unit — all validated and persisted. Settings shows inbox/event switches (SharedPreferences) and backend config (ApiConfig shows Local only pending).
+11. **Documents:** Sample listings with file type/size validation and backend note.
 
 ## Limitations and roadmap
 
-- Records and most profile/workflow changes are held in process memory. They are not durable and are never shared across accounts/devices; restarting the process re-seeds the examples. Settings switches are local `SharedPreferences` only.
-- Login, registration and recovery are mock/demo UI, not identity verification; no password is retained. Role previews do not enforce authorization.
-- Visitor approval, request/complaint updates, management actions and RSVP are local demonstrations only.
-- Notifications are in-app demo records only; there is no push service.
-- Documents are sample listings without backing files or download/open behavior.
-- Dark theme is not supported. Stitch design fidelity cannot be claimed until the Stitch references are supplied.
-- The splash/entry screen is the login page; there is no separate branded splash screen.
-- Public emergency numbers displayed are India-specific. Verify local emergency numbers for your jurisdiction before using them. Sample community contacts have no dial action.
-- The future architecture target is Android presentation → repository/data access → Spring Boot REST API → MySQL, with server-enforced authorization and durable records. This backend has not been implemented.
+- **Local only:** All data in SharedPreferences JSON, not encrypted, not synced across devices. Survives restart but not multi-device. Settings switches local only.
+- **Auth:** Local registration/login only, passwords not securely stored (only length validated). No JWT, no bcrypt. Role is client-side, not security boundary. Server must enforce authz when backend ready.
+- **Backend:** Spring Boot + MySQL not implemented. ApiConfig default placeholder https://api.example.com/api/v1/, enabled false. When provisioned, set base URL, enable, implement Retrofit layer.
+- **Push:** Notifications are in-app only, no FCM.
+- **Documents:** Sample listings, no files bundled, download simulated with validation + backend note. Needs backend file storage and storage permission.
+- **Dark theme:** Not supported — Light only.
+- **Splash:** Entry is login page, no separate branded splash (needs core-splashscreen).
+- **Emergency numbers:** Public India helplines 112,101,108 + community numbers 9876543210, 9876543211. Verify local numbers.
+- **Testing:** No automated tests yet, manual checklist in TESTING.md. Resource verification passes, build blocked in this env (no JDK/SDK).
+
+**Roadmap:** Android presentation → repository (PersistentRepository now, ApiRepository future) → Spring Boot REST API → MySQL, with server-enforced auth and durable records, FCM push, file storage, encrypted prefs, biometric, dark theme, splash, tablet layouts.
 
 ## Project documentation
 
+- [Implementation checklist](docs/IMPLEMENTATION_CHECKLIST.md)
+- [Final verification report](docs/FINAL_REPORT.md)
 - [Product requirements](docs/PRD.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Feature behavior and limitations](docs/FEATURES.md)
 - [Build and manual testing](docs/TESTING.md)
+- [Design system](docs/DESIGN_SYSTEM.md)
+- [UI/UX audit](docs/UI_UX_AUDIT.md)
+- [Animations](docs/ANIMATIONS.md)

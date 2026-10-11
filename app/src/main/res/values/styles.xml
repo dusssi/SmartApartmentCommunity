@@ -1,39 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Typography hierarchy. Use these with TextViewCompat.setTextAppearance(). -->
+<!--
+  Typography hierarchy — Stitch-aligned, clean, modern.
+  Uses sans-serif, clear hierarchy, consistent line spacing.
+-->
 <resources>
-    <style name="TextAppearance.App.Headline" parent="TextAppearance.AppCompat">
-        <item name="android:textSize">26sp</item>
+    <style name="TextAppearance.App.Headline" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textSize">28sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
-        <item name="android:lineSpacingMultiplier">1.05</item>
+        <item name="android:lineSpacingMultiplier">1.1</item>
+        <item name="android:letterSpacing">-0.01</item>
     </style>
 
-    <style name="TextAppearance.App.Title" parent="TextAppearance.AppCompat">
-        <item name="android:textSize">17sp</item>
+    <style name="TextAppearance.App.HeadlineLarge" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:textSize">32sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:lineSpacingMultiplier">1.1</item>
+        <item name="android:letterSpacing">-0.02</item>
+    </style>
+
+    <style name="TextAppearance.App.Title" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:lineSpacingMultiplier">1.2</item>
+    </style>
+
+    <style name="TextAppearance.App.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textSize">22sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
     </style>
 
-    <style name="TextAppearance.App.Body" parent="TextAppearance.AppCompat">
+    <style name="TextAppearance.App.Body" parent="TextAppearance.Material3.BodyLarge">
         <item name="android:textSize">15sp</item>
         <item name="android:textColor">@color/text_primary</item>
-        <item name="android:lineSpacingMultiplier">1.12</item>
+        <item name="android:lineSpacingMultiplier">1.4</item>
     </style>
 
-    <style name="TextAppearance.App.BodySecondary" parent="TextAppearance.AppCompat">
+    <style name="TextAppearance.App.BodySecondary" parent="TextAppearance.Material3.BodyMedium">
         <item name="android:textSize">14sp</item>
         <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:lineSpacingMultiplier">1.12</item>
+        <item name="android:lineSpacingMultiplier">1.4</item>
     </style>
 
-    <style name="TextAppearance.App.Label" parent="TextAppearance.AppCompat">
+    <style name="TextAppearance.App.Label" parent="TextAppearance.Material3.LabelLarge">
         <item name="android:textSize">12sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:letterSpacing">0.04</item>
     </style>
 
-    <style name="TextAppearance.App.Overline" parent="TextAppearance.AppCompat">
+    <style name="TextAppearance.App.Overline" parent="TextAppearance.Material3.LabelSmall">
         <item name="android:textSize">11sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/primary</item>
@@ -41,13 +60,40 @@
         <item name="android:textAllCaps">true</item>
     </style>
 
-    <style name="TextAppearance.App.Caption" parent="TextAppearance.AppCompat">
+    <style name="TextAppearance.App.Caption" parent="TextAppearance.Material3.BodySmall">
         <item name="android:textSize">12sp</item>
         <item name="android:textColor">@color/text_muted</item>
+        <item name="android:lineSpacingMultiplier">1.3</item>
     </style>
 
-    <style name="TextAppearance.App.Chip" parent="TextAppearance.AppCompat">
+    <style name="TextAppearance.App.Chip" parent="TextAppearance.Material3.LabelSmall">
         <item name="android:textSize">12sp</item>
         <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.02</item>
+    </style>
+
+    <style name="TextAppearance.App.Button" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.02</item>
+    </style>
+
+    <!-- Card styles -->
+    <style name="Widget.App.Card" parent="Widget.Material3.CardView.ElevatedCard">
+        <item name="cardCornerRadius">@dimen/radius_card</item>
+        <item name="cardElevation">@dimen/elevation_card</item>
+        <item name="strokeColor">@color/outline</item>
+        <item name="strokeWidth">@dimen/stroke_hairline</item>
+        <item name="contentPadding">0dp</item>
+    </style>
+
+    <style name="Widget.App.Button" parent="Widget.Material3.Button">
+        <item name="cornerRadius">@dimen/radius_sm</item>
+        <item name="android:minHeight">@dimen/button_height</item>
+    </style>
+
+    <style name="Widget.App.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="cornerRadius">@dimen/radius_sm</item>
+        <item name="android:minHeight">@dimen/button_height</item>
     </style>
 </resources>

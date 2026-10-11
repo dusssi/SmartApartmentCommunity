@@ -5,7 +5,9 @@
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
     android:minHeight="@dimen/touch_min"
-    android:orientation="horizontal">
+    android:orientation="horizontal"
+    android:paddingTop="@dimen/space_2xs"
+    android:paddingBottom="@dimen/space_2xs">
 
     <TextView
         android:id="@+id/sectionTitle"
@@ -13,7 +15,8 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:accessibilityHeading="true" />
+        android:accessibilityHeading="true"
+        android:textSize="18sp" />
 
     <TextView
         android:id="@+id/sectionAction"
@@ -23,9 +26,10 @@
         android:clickable="true"
         android:focusable="true"
         android:gravity="center_vertical"
-        android:paddingStart="@dimen/space_xs"
-        android:paddingEnd="@dimen/space_2xs"
+        android:paddingStart="@dimen/space_md"
+        android:paddingEnd="@dimen/space_sm"
         android:textAppearance="@style/TextAppearance.App.Label"
         android:textColor="@color/primary"
+        android:textSize="13sp"
         android:visibility="gone" />
 </LinearLayout>

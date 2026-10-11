@@ -1,21 +1,32 @@
 <resources>
+    <!-- Stitch-inspired Material 3 Light theme — blue primary, neutral surfaces -->
     <style name="Theme.ApartmentCommunity" parent="Theme.Material3.Light.NoActionBar">
         <item name="colorPrimary">@color/primary</item>
         <item name="colorOnPrimary">@color/white</item>
         <item name="colorPrimaryContainer">@color/primary_light</item>
         <item name="colorOnPrimaryContainer">@color/primary_dark</item>
         <item name="colorSecondary">@color/secondary</item>
-        <item name="colorOnSecondary">@color/text_primary</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSecondaryContainer">@color/secondary_light</item>
+        <item name="colorOnSecondaryContainer">@color/secondary_dark</item>
         <item name="colorSurface">@color/surface</item>
         <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline_variant</item>
+        <item name="colorError">@color/danger</item>
+        <item name="colorOnError">@color/white</item>
         <item name="colorControlActivated">@color/primary</item>
         <item name="colorControlHighlight">@color/primary_ripple</item>
         <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">@color/background</item>
         <item name="android:navigationBarColor">@color/surface</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowBackground">@color/background</item>
         <item name="android:windowActionModeOverlay">true</item>
+        <!-- Material 3 shape and typography will inherit -->
     </style>
 </resources>
