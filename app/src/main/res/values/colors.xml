@@ -1,17 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Smart Community design tokens (Phase 3 fallback palette).
+  No Google Stitch exports were available in the repository, so this palette follows the
+  provisional direction in docs/DESIGN_SYSTEM.md: deep emerald brand, warm off-white surfaces,
+  charcoal text and limited semantic accents. Existing token names are kept for compatibility.
+-->
 <resources>
-    <color name="primary">#245A49</color>
-    <color name="primary_dark">#174536</color>
-    <color name="primary_light">#E6F0E9</color>
-    <color name="secondary">#D49C4B</color>
-    <color name="background">#F4F7F4</color>
+    <!-- Brand -->
+    <color name="primary">#0E5C47</color>
+    <color name="primary_dark">#0A4535</color>
+    <color name="primary_light">#E3F0EA</color>
+    <color name="primary_ripple">#220E5C47</color>
+    <color name="secondary">#C4863A</color>
+    <color name="secondary_light">#FBF0DE</color>
+
+    <!-- Surfaces -->
+    <color name="background">#F7F5F0</color>
     <color name="surface">#FFFFFF</color>
-    <color name="text_primary">#1B2923</color>
-    <color name="text_secondary">#5F6E66</color>
-    <color name="text_muted">#829088</color>
-    <color name="outline">#DDE6DF</color>
-    <color name="success">#28744E</color>
-    <color name="warning">#A96B16</color>
-    <color name="danger">#B24E48</color>
-    <color name="info">#356B9A</color>
+    <color name="surface_variant">#F0EDE5</color>
+    <color name="outline">#E0DACE</color>
+    <color name="outline_strong">#8C8579</color>
+
+    <!-- Text (contrast checked against #FFFFFF and #F7F5F0, WCAG AA for body text) -->
+    <color name="text_primary">#1E2622</color>
+    <color name="text_secondary">#56605A</color>
+    <color name="text_muted">#66706A</color>
+
+    <!-- Semantic -->
+    <color name="success">#266B48</color>
+    <color name="success_container">#E4F2EA</color>
+    <color name="warning">#8F5E10</color>
+    <color name="warning_container">#FBF0DC</color>
+    <color name="danger">#B3413B</color>
+    <color name="danger_container">#F9E4E2</color>
+    <color name="info">#2F6690</color>
+    <color name="info_container">#E2EDF6</color>
+
     <color name="white">#FFFFFF</color>
 </resources>

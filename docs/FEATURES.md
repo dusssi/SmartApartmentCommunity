@@ -32,3 +32,14 @@ All records below are fictional. Unless stated otherwise, workflow changes are i
 - **Maintenance:** focused complaint queue and request destinations; can update complaint status.
 
 Actual backend authorization and shared data are future scope. A client can always be modified, so these previews must not be used with real resident or visitor information.
+
+## Phase 2 UI changes (no functional changes intended)
+
+- Role selection: each role has its own icon and a chevron; cards show ripple and press feedback; the demo disclaimer is unchanged.
+- Text fields: the floating label no longer overlaps entered text (the custom padding override is removed); the example text shows as a placeholder.
+- Keyboard: content is padded above the keyboard, and the bottom navigation hides while it is open.
+- Search: list updates use `DiffUtil`, so only changed rows animate.
+- Status changes (read/unread, complaint/request/visitor advance, RSVP) update in place without replaying the screen entrance.
+- Dashboard quick-action tiles are slightly smaller (132dp) with a 40dp icon container; the destinations are unchanged.
+- Dark theme is removed (light theme only).
+

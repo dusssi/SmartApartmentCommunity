@@ -58,6 +58,7 @@ import com.apartment.community.model.ServiceRequest;
 import com.apartment.community.model.User;
 import com.apartment.community.model.Visitor;
 import com.apartment.community.repository.DemoRepository;
+import com.apartment.community.ui.Motion;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
@@ -83,6 +84,10 @@ public class MainActivity extends AppCompatActivity {
     private final List<Route> backStack = new ArrayList<>();
     private DemoRepository repository;
     private FrameLayout screenRoot;
+    private BottomNavigationView bottomNav;
+    /** False for in-place refreshes (status changes) so entrance motion is not replayed. */
+    private boolean animateNextRender = true;
+    private boolean animateCurrentRender = true;
 
     private static final class Route {
         final String name;
@@ -131,8 +136,16 @@ public class MainActivity extends AppCompatActivity {
         ViewCompat.setOnApplyWindowInsetsListener(screenRoot, (view, windowInsets) -> {
             Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()
                     | WindowInsetsCompat.Type.displayCutout());
+            boolean imeVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime());
+            Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+            // With edge-to-edge the window is not resized for the keyboard, so pad the content
+            // above the IME. The bottom navigation is hidden while typing to keep fields visible.
+            int bottomInset = Math.max(systemBars.bottom, imeVisible ? ime.bottom : 0);
             view.setPadding(rootLeft + systemBars.left, rootTop + systemBars.top,
-                    rootRight + systemBars.right, rootBottom + systemBars.bottom);
+                    rootRight + systemBars.right, rootBottom + bottomInset);
+            if (bottomNav != null) {
+                bottomNav.setVisibility(imeVisible ? View.GONE : View.VISIBLE);
+            }
             return windowInsets;
         });
         ViewCompat.requestApplyInsets(screenRoot);
@@ -197,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
     private void replaceCurrent(String route, String id) {
         if (backStack.isEmpty()) backStack.add(new Route(route, id));
         else backStack.set(backStack.size() - 1, new Route(route, id));
-        render();
+        renderQuietly();
     }
 
     private boolean isAuthRoute(String route) {
@@ -212,7 +225,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void render() {
         if (screenRoot == null || backStack.isEmpty()) return;
+        animateCurrentRender = animateNextRender;
+        animateNextRender = true;
         screenRoot.removeAllViews();
+        bottomNav = null;
         Route route = current();
         if (isAuthRoute(route.name)) {
             renderAuth(route);
@@ -223,6 +239,12 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         renderMain(route);
+    }
+
+    /** Re-renders the current screen without the entrance motion (used for in-place updates). */
+    private void renderQuietly() {
+        animateNextRender = false;
+        render();
     }
 
     private void renderAuth(Route route) {
@@ -246,10 +268,12 @@ public class MainActivity extends AppCompatActivity {
         renderContent(route, panel);
 
         BottomNavigationView bottom = createBottomNavigation(route);
+        bottomNav = bottom;
         shell.addView(bottom, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         screenRoot.addView(shell, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (animateCurrentRender) Motion.enter(panel, 0L);
     }
 
     private void renderContent(Route route, FrameLayout panel) {
@@ -563,36 +587,76 @@ public class MainActivity extends AppCompatActivity {
         addAuthHeader(page, "Choose a role preview", "Explore how the same community app can support different teams.");
         TextView warning = text("Role preview is for demonstration only. It is not authentication or access control.", 13, R.color.warning, false);
         warning.setPadding(dp(14), dp(12), dp(14), dp(12));
-        warning.setBackground(shape(color(R.color.surface), dp(14), color(R.color.outline), dp(1)));
+        warning.setBackground(shape(color(R.color.warning_container), dp(14), color(R.color.warning_container), 0));
         addTopMargin(page, warning, 18);
+        List<View> roleCards = new ArrayList<>();
         for (CommunityRole role : CommunityRole.values()) {
-            MaterialCardView card = new MaterialCardView(this);
-            card.setCardBackgroundColor(color(R.color.surface));
-            card.setStrokeColor(color(R.color.outline));
-            card.setStrokeWidth(dp(1));
-            card.setRadius(dp(16));
-            card.setCardElevation(dp(1));
-            card.setClickable(true);
-            card.setFocusable(true);
+            MaterialCardView card = card();
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(14), dp(14), dp(14));
+
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(roleIcon(role));
+            icon.setColorFilter(color(R.color.primary));
+            icon.setPadding(dp(11), dp(11), dp(11), dp(11));
+            icon.setBackground(shape(color(R.color.primary_light), dp(14), color(R.color.primary_light), 0));
+            icon.setContentDescription(null);
+            row.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
             LinearLayout copy = new LinearLayout(this);
             copy.setOrientation(LinearLayout.VERTICAL);
-            copy.setPadding(dp(18), dp(16), dp(18), dp(16));
-            copy.addView(text(role.getLabel(), 16, R.color.text_primary, true));
+            LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            copyParams.leftMargin = dp(14);
+            row.addView(copy, copyParams);
+            TextView title = text(role.getLabel(), 16, R.color.text_primary, true);
+            copy.addView(title);
             TextView desc = text(role.getDescription() + " · Open demo dashboard", 13, R.color.text_secondary, false);
-            addTopMargin(copy, desc, 5);
-            card.addView(copy);
+            addTopMargin(copy, desc, 3);
+
+            ImageView chevron = new ImageView(this);
+            chevron.setImageResource(R.drawable.ic_chevron_right);
+            chevron.setColorFilter(color(R.color.text_muted));
+            chevron.setContentDescription(null);
+            row.addView(chevron, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+            card.addView(row);
             LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             cardParams.topMargin = dp(12);
             page.addView(card, cardParams);
-            card.setContentDescription("Preview as " + role.getLabel());
-            card.setOnClickListener(v -> {
+            roleCards.add(card);
+            makeClickable(card, "Preview as " + role.getLabel(), () -> {
                 repository.setRole(role);
                 rootRoute("HOME");
                 Toast.makeText(this, role.getLabel() + " preview selected", Toast.LENGTH_SHORT).show();
             });
         }
+        attachAuthPage(page, false);
+        if (animateCurrentRender) Motion.staggerEnter(roleCards);
         addDisclaimer(page);
-        attachAuthPage(page);
+    }
+
+    @DrawableRes
+    private int roleIcon(CommunityRole role) {
+        switch (role) {
+            case MANAGEMENT: return R.drawable.ic_briefcase;
+            case SECURITY: return R.drawable.ic_shield;
+            case MAINTENANCE: return R.drawable.ic_build;
+            default: return R.drawable.ic_home;
+        }
+    }
+
+    /**
+     * Makes a card announce itself as a button, show the Material ripple and provide a light
+     * press-scale. The click listener is attached last so the card keeps its normal semantics.
+     */
+    private void makeClickable(MaterialCardView card, String description, Runnable action) {
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setContentDescription(description);
+        card.setOnClickListener(v -> action.run());
+        Motion.attachPressFeedback(card);
     }
 
     private LinearLayout authPage(boolean withBack) {
@@ -611,11 +675,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void attachAuthPage(LinearLayout page) {
+        attachAuthPage(page, animateCurrentRender);
+    }
+
+    private void attachAuthPage(LinearLayout page, boolean animate) {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         scroll.addView(page, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         screenRoot.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (animate) Motion.enter(page, 0L);
     }
 
     private void addBranding(LinearLayout parent) {
@@ -715,10 +784,11 @@ public class MainActivity extends AppCompatActivity {
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             params.topMargin = dp(8);
             content.addView(update, params);
-            update.setOnClickListener(v -> {
-                repository.markAnnouncementRead(announcement.id, true);
-                navigate("DETAIL_ANNOUNCEMENT", announcement.id);
-            });
+            makeClickable(update, announcement.title,
+                    () -> {
+                        repository.markAnnouncementRead(announcement.id, true);
+                        navigate("DETAIL_ANNOUNCEMENT", announcement.id);
+                    });
         }
 
         CommunityEvent upcoming = null;
@@ -729,7 +799,7 @@ public class MainActivity extends AppCompatActivity {
             MaterialCardView eventCard = compactInfoCard(upcomingEvent.title, upcomingEvent.eventDateTime + " · " + upcomingEvent.location,
                     upcomingEvent.attending ? "Going" : "Event");
             content.addView(eventCard);
-            eventCard.setOnClickListener(v -> navigate("DETAIL_EVENT", upcomingEvent.id));
+            makeClickable(eventCard, upcomingEvent.title, () -> navigate("DETAIL_EVENT", upcomingEvent.id));
         }
         TextView footer = text("Demo data is local to this app session. Changes are not shared with other users.", 11, R.color.text_muted, false);
         footer.setGravity(Gravity.CENTER);
@@ -986,6 +1056,7 @@ public class MainActivity extends AppCompatActivity {
         search.input.setSingleLine(true);
         search.input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         search.layout.setHintEnabled(false);
+        search.layout.setPlaceholderText(null);
         search.input.setHint(searchHint(type));
         LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         searchParams.topMargin = dp(12);
@@ -1252,7 +1323,7 @@ public class MainActivity extends AppCompatActivity {
             boolean markRead = !item.read;
             repository.markAnnouncementRead(item.id, markRead);
             Toast.makeText(this, markRead ? "Marked read" : "Marked unread", Toast.LENGTH_SHORT).show();
-            render();
+            renderQuietly();
         });
     }
 
@@ -1282,7 +1353,7 @@ public class MainActivity extends AppCompatActivity {
             action.setOnClickListener(v -> {
                 repository.advanceComplaint(item.id);
                 Toast.makeText(this, "Demo status updated to " + item.status, Toast.LENGTH_SHORT).show();
-                render();
+                renderQuietly();
             });
         } else {
             addInfoCard(content, "NEXT STEP", "Management or maintenance staff can update this sample status in their own role preview.");
@@ -1302,7 +1373,7 @@ public class MainActivity extends AppCompatActivity {
             action.setOnClickListener(v -> {
                 repository.advanceRequest(item.id);
                 Toast.makeText(this, "Demo request status updated to " + item.status, Toast.LENGTH_SHORT).show();
-                render();
+                renderQuietly();
             });
         } else {
             addInfoCard(content, "STATUS", "Request status is sample data and is not synchronized with management.");
@@ -1324,7 +1395,7 @@ public class MainActivity extends AppCompatActivity {
             action.setOnClickListener(v -> {
                 repository.advanceVisitor(item.id);
                 Toast.makeText(this, "Local demo status updated to " + item.status, Toast.LENGTH_SHORT).show();
-                render();
+                renderQuietly();
             });
         } else {
             addInfoCard(content, "VISITOR STATUS", "Entry and exit status is a local demonstration and is not connected to a gate system.");
@@ -1345,7 +1416,7 @@ public class MainActivity extends AppCompatActivity {
                 boolean attending = !item.attending;
                 repository.setEventAttendance(item.id, attending);
                 Toast.makeText(this, attending ? "Demo RSVP saved" : "Demo RSVP removed", Toast.LENGTH_SHORT).show();
-                render();
+                renderQuietly();
             });
         }
         addInfoCard(content, "DEMO NOTE", "RSVP is stored only in local in-memory state; organizers are not notified.");
@@ -1679,18 +1750,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addActionGrid(LinearLayout parent, List<Tile> tiles) {
+        List<View> revealed = new ArrayList<>();
         for (int i = 0; i < tiles.size(); i += 2) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             Tile first = tiles.get(i);
-            row.addView(actionTile(first), new LinearLayout.LayoutParams(0, dp(137), 1f));
+            View firstTile = actionTile(first);
+            revealed.add(firstTile);
+            row.addView(firstTile, new LinearLayout.LayoutParams(0, dp(132), 1f));
             if (i + 1 < tiles.size()) {
-                LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, dp(137), 1f);
+                LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, dp(132), 1f);
                 secondParams.leftMargin = dp(10);
-                row.addView(actionTile(tiles.get(i + 1)), secondParams);
+                View secondTile = actionTile(tiles.get(i + 1));
+                revealed.add(secondTile);
+                row.addView(secondTile, secondParams);
             } else {
                 View spacer = new View(this);
-                LinearLayout.LayoutParams spacerParams = new LinearLayout.LayoutParams(0, dp(137), 1f);
+                LinearLayout.LayoutParams spacerParams = new LinearLayout.LayoutParams(0, dp(132), 1f);
                 spacerParams.leftMargin = dp(10);
                 row.addView(spacer, spacerParams);
             }
@@ -1698,6 +1774,7 @@ public class MainActivity extends AppCompatActivity {
             rowParams.topMargin = dp(9);
             parent.addView(row, rowParams);
         }
+        if (animateCurrentRender) Motion.staggerEnter(revealed);
     }
 
     private View actionTile(Tile tile) {
@@ -1710,6 +1787,7 @@ public class MainActivity extends AppCompatActivity {
         ((TextView) root.findViewById(R.id.actionCaption)).setText(tile.caption);
         card.setContentDescription(tile.title + ". " + tile.caption);
         card.setOnClickListener(v -> navigate(tile.destination));
+        Motion.attachPressFeedback(card);
         return root;
     }
 
@@ -1726,8 +1804,8 @@ public class MainActivity extends AppCompatActivity {
         copy.addView(text(title, 14, R.color.text_primary, true));
         TextView sub = text(subtitle, 11, R.color.text_secondary, false);
         addTopMargin(copy, sub, 4);
-        TextView badge = text(badgeText, 10, R.color.primary, true);
-        badge.setPadding(dp(8), dp(5), dp(8), dp(5));
+        TextView badge = text(badgeText, 11, R.color.primary, true);
+        badge.setPadding(dp(8), dp(4), dp(8), dp(4));
         badge.setBackground(shape(color(R.color.primary_light), dp(20), color(R.color.primary_light), 0));
         LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         badgeParams.leftMargin = dp(8);
@@ -1893,16 +1971,26 @@ public class MainActivity extends AppCompatActivity {
         TextInputLayout layout = new TextInputLayout(this);
         layout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
         layout.setBoxBackgroundColor(color(R.color.surface));
-        layout.setBoxStrokeColor(color(R.color.outline));
         layout.setHint(label == null || label.isEmpty() ? null : label);
-        layout.setBoxCornerRadii(dp(13), dp(13), dp(13), dp(13));
+        layout.setBoxCornerRadii(dp(14), dp(14), dp(14), dp(14));
+        layout.setBoxStrokeWidth(dp(1));
+        layout.setBoxStrokeWidthFocused(dp(2));
+        int[][] strokeStates = new int[][]{
+                {android.R.attr.state_focused, android.R.attr.state_enabled},
+                {android.R.attr.state_enabled},
+                {}};
+        layout.setBoxStrokeColorStateList(new ColorStateList(strokeStates, new int[]{
+                color(R.color.primary), color(R.color.outline_strong), color(R.color.outline_strong)}));
+        layout.setErrorTextColor(ColorStateList.valueOf(color(R.color.danger)));
+        layout.setHintTextColor(ColorStateList.valueOf(color(R.color.text_secondary)));
         TextInputEditText input = new TextInputEditText(layout.getContext());
-        input.setTextSize(15);
+        input.setTextSize(16);
         input.setTextColor(color(R.color.text_primary));
         input.setHintTextColor(color(R.color.text_muted));
         input.setInputType(inputType);
-        input.setPadding(dp(14), dp(13), dp(14), dp(12));
-        input.setHint(hint);
+        // Use the floating label + placeholder pair. Overriding the EditText padding here made the
+        // expanded label overlap the entered text, so the padding is left to the Material layout.
+        if (hint != null && !hint.isEmpty()) layout.setPlaceholderText(hint);
         if (!multiline) input.setSingleLine(true);
         else input.setGravity(Gravity.TOP | Gravity.START);
         layout.addView(input, new TextInputLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
