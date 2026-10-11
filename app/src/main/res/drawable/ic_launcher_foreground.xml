@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Left residential tower (soft blue-white facade, inside safe zone x=27..44) -->
+    <path
+        android:fillColor="@color/primary_light"
+        android:pathData="M29,42h13a2,2 0,0 1,2 2v30h-17v-30a2,2 0,0 1,2 -2z" />
+
+    <!-- Left tower windows -->
+    <path
+        android:fillColor="@color/primary_dark"
+        android:pathData="M31,47h3.5v3.5H31zM36.5,47h3.5v3.5h-3.5zM31,53.5h3.5v3.5H31zM36.5,53.5h3.5v3.5h-3.5zM31,60h3.5v3.5H31zM36.5,60h3.5v3.5h-3.5z" />
+
+    <!-- Right residential tower (teal-tinted facade, inside safe zone x=64..81) -->
+    <path
+        android:fillColor="@color/secondary_light"
+        android:pathData="M64,41L79,36a2,2 0,0 1,2 2v36h-17z" />
+
+    <!-- Right tower windows -->
+    <path
+        android:fillColor="@color/secondary_dark"
+        android:pathData="M67.5,44h3.5v3.5h-3.5zM73,44h3.5v3.5H73zM67.5,50.5h3.5v3.5h-3.5zM73,50.5h3.5v3.5H73zM67.5,57h3.5v3.5h-3.5zM73,57h3.5v3.5H73z" />
+
+    <!-- Central flagship apartment tower (crisp white, x=42..66, y=25..74) -->
+    <path
+        android:fillColor="@color/white"
+        android:pathData="M42,33L54,25L66,33L66,74L42,74Z" />
+
+    <!-- Central tower teal architectural crown accent -->
+    <path
+        android:fillColor="@color/secondary"
+        android:pathData="M45.5,34.5L54,29L62.5,34.5L62.5,37L54,31.5L45.5,37Z" />
+
+    <!-- Central tower windows (primary blue & teal grid) -->
+    <path
+        android:fillColor="@color/primary"
+        android:pathData="M47,40h5v4h-5zM56,40h5v4h-5zM47,47h5v4h-5zM56,47h5v4h-5z" />
+    <path
+        android:fillColor="@color/secondary"
+        android:pathData="M47,54h5v4h-5zM56,54h5v4h-5z" />
+
+    <!-- Central community entrance arch -->
+    <path
+        android:fillColor="@color/primary_dark"
+        android:pathData="M50,65a4,4 0,0 1,8 0v9h-8z" />
+
+    <!-- Teal community horizon bridge -->
+    <path
+        android:fillColor="@color/secondary"
+        android:pathData="M25,73C42,69 66,69 83,73L83,77.5C66,74 42,74 25,77.5Z" />
+
+    <!-- Green community park / Cedar Grove accent wave -->
+    <path
+        android:fillColor="@color/success"
+        android:pathData="M31,77.5C46,74 62,74 77,77.5C63,81.5 45,81.5 31,77.5Z" />
+
+    <!-- Subtle green courtyard trees flanking central tower -->
+    <path
+        android:fillColor="#22C55E"
+        android:pathData="M40,70a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0zM61,70a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0z" />
+</vector>

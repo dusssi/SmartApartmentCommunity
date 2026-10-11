@@ -8,12 +8,15 @@ No backend is bundled — data stays on device until Spring Boot + MySQL backend
 
 ## What is included
 
-- **Authentication:** Registration with email uniqueness, login with registered check, forgot password with local reset note, role selection (Resident, Management, Security, Maintenance) persisted
+- **Official app branding & launcher icons:** Adaptive launcher icon (`ic_launcher_background.xml`, `ic_launcher_foreground.xml`, `ic_launcher_monochrome.xml`, `mipmap-anydpi-v26`), legacy density PNGs (`mdpi` through `xxxhdpi`), in-app vector logo (`ic_app_logo.xml`), and transparent splash logo (`ic_app_logo_transparent.xml`)
+- **Polished startup splash experience:** Single-activity cold-start splash overlay (`layout/view_splash.xml` + `Motion.animateSplash`) with centered logo fade/scale-up, app name, tagline, and blue/teal accent bar (respects system reduced-motion settings and avoids duplicate splash screens)
+- **Authentication & session protection:** Registration with email uniqueness and SHA-256 password hashing, login credential verification with animated success feedback, logout confirmation dialog (`Cancel` / `Logout`) that clears the active session, and back-stack protection so pressing Back or reopening never bypasses login
+- **Reusable loading & confirmation feedback:** Inline button spinner (`Motion.setButtonLoading`), completion checkmark pulse (`Motion.completeButtonWithConfirmation`), and accessible Material dialogs (`UiFeedback.java`, `dialog_feedback.xml`, `dialog_confirm.xml`) with zero fake pre-operation delays
 - **Four role-aware experiences:** Resident, Management, Security, Maintenance with role-specific navigation and actions
 - **Home dashboard:** Greeting, real stats from persistent data (open issues, visitors, new updates), quick access grid, recent updates, upcoming events
-- **Searchable/filterable lists:** Residents, announcements, complaints, service requests, visitors, events, emergency contacts, notifications, documents — all backed by PersistentRepository
-- **Form workflows:** Complaints, requests, visitors, announcements, events, residents, profile edits — all validated (required, email format, phone 7-15 digits, password 6+, date not past, unit uniqueness, file type/size), with loading states and duplicate prevention
-- **Detail screens:** Status history timelines, read/unread toggles, RSVP, dialer hand-off via ACTION_DIAL (no CALL permission)
+- **Searchable/filterable lists:** Residents, announcements, complaints, service requests, visitors, events, emergency contacts, notifications, documents — all backed by PersistentRepository with interactive empty-state reset actions
+- **Form workflows:** Complaints, requests, visitors, announcements, events, residents, profile edits — all validated with inline loading feedback, duplicate prevention, and confirmation dialogs
+- **Detail screens:** Status history timelines, read/unread toggles, RSVP confirmation, dialer hand-off via ACTION_DIAL (no CALL permission)
 - **Persistence:** SharedPreferences JSON for all lists + user, survives restart, seed on first launch
 - **Design system:** Blue primary #2563EB, teal #0D9488 secondary, neutral #F8FAFC background, slate text hierarchy, 16dp cards, 52dp buttons, 48dp touch targets, Material 3 Light theme
 - **API abstraction:** ApiConfig with configurable base URL (default placeholder), ApiModels for Spring Boot contracts, no hardcoded credentials
@@ -52,7 +55,7 @@ Configure `ANDROID_HOME` and local.properties (ignored, not committed).
 ## Build
 
 ```bash
-./gradlew assembleDebug
+./gradlew clean assembleDebug
 ```
 
 APK at `app/build/outputs/apk/debug/app-debug.apk`

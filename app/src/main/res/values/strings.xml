@@ -11,4 +11,31 @@
     <string name="forgot_subtitle">We\'ll help you recover your account</string>
     <string name="role_picker_title">Choose your role</string>
     <string name="role_picker_subtitle">Select how you\'ll use the community platform</string>
+
+    <!-- Splash & branding -->
+    <string name="splash_loading_hint">Preparing your community workspace…</string>
+
+    <!-- Operation & confirmation feedback -->
+    <string name="feedback_login_success">Login successful</string>
+    <string name="feedback_login_success_subtitle">Welcome back to Cedar Grove Residences.</string>
+    <string name="feedback_register_success">Account created</string>
+    <string name="feedback_register_success_subtitle">Select your community role to get started.</string>
+    <string name="feedback_complaint_submitted">Complaint submitted</string>
+    <string name="feedback_complaint_submitted_subtitle">Your maintenance issue has been saved locally.</string>
+    <string name="feedback_request_saved">Maintenance request saved</string>
+    <string name="feedback_request_saved_subtitle">Your service request has been recorded for the community team.</string>
+    <string name="feedback_visitor_registered">Visitor registered</string>
+    <string name="feedback_visitor_registered_subtitle">Expected visit details have been saved for the gate desk.</string>
+    <string name="feedback_announcement_published">Announcement published</string>
+    <string name="feedback_event_created">Event created</string>
+    <string name="feedback_resident_added">Resident added</string>
+    <string name="feedback_profile_updated">Profile updated</string>
+
+    <!-- Dialogs -->
+    <string name="logout_confirm_title">Are you sure you want to log out?</string>
+    <string name="logout_confirm_message">Your active session will end and you will return to the sign-in screen. Your saved community data remains on this device.</string>
+    <string name="action_logout">Logout</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_continue">Continue</string>
 </resources>

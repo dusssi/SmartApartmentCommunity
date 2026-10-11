@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Left tower with cut-out windows -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M29,42h11v30h-13v-28a2,2 0,0 1,2 -2zM31,47h3.5v3.5H31zM36,47h3.5v3.5H36zM31,53.5h3.5v3.5H31zM36,53.5h3.5v3.5H36zM31,60h3.5v3.5H31zM36,60h3.5v3.5H36z" />
+
+    <!-- Right tower with cut-out windows -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M68,40L79,36a2,2 0,0 1,2 2v34h-13zM70,44h3.5v3.5H70zM75,44h3.5v3.5H75zM70,50.5h3.5v3.5H70zM75,50.5h3.5v3.5H75zM70,57h3.5v3.5H70zM75,57h3.5v3.5H75z" />
+
+    <!-- Central tower with cut-out windows and arch doorway -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M42,33L54,25L66,33L66,72L42,72ZM47,40h5v4h-5zM56,40h5v4h-5zM47,47h5v4h-5zM56,47h5v4h-5zM47,54h5v4h-5zM56,54h5v4h-5zM50,65a4,4 0,0 1,8 0v7h-8z" />
+
+    <!-- Community courtyard horizon curve -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M25,74C42,70.5 66,70.5 83,74L83,78.5C66,75 42,75 25,78.5Z" />
+</vector>

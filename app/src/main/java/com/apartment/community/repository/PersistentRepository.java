@@ -51,6 +51,7 @@ public final class PersistentRepository {
     private static final String USER_UNIT = "user_unit";
     private static final String USER_ROLE = "user_role";
     private static final String USER_PHONE = "user_phone";
+    private static final String USER_AUTHENTICATED = "user_authenticated";
 
     private static PersistentRepository INSTANCE;
 
@@ -127,12 +128,31 @@ public final class PersistentRepository {
 
     public synchronized void setRole(CommunityRole role) {
         currentUser.role = role;
+        userPrefs.edit().putBoolean(USER_AUTHENTICATED, role != null).apply();
         saveUser();
     }
 
     public synchronized void resetRole() {
         currentUser.role = null;
+        userPrefs.edit().putBoolean(USER_AUTHENTICATED, false).remove(USER_ROLE).apply();
         saveUser();
+    }
+
+    /** Clears the active authentication session while preserving all persisted community and account records. */
+    public synchronized void logout() {
+        currentUser.role = null;
+        userPrefs.edit()
+                .putBoolean(USER_AUTHENTICATED, false)
+                .remove(USER_ROLE)
+                .apply();
+        saveUser();
+    }
+
+    /** Returns true when a user has an active authenticated session. */
+    public synchronized boolean isAuthenticated() {
+        boolean hasEmail = currentUser != null && currentUser.email != null && !currentUser.email.trim().isEmpty();
+        boolean flag = userPrefs.getBoolean(USER_AUTHENTICATED, currentUser != null && currentUser.role != null);
+        return hasEmail && flag;
     }
 
     public synchronized void setLoginEmail(String email) {
@@ -153,30 +173,55 @@ public final class PersistentRepository {
             }
             currentUser.name = displayName.toString();
         }
+        userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
         saveUser();
     }
 
     public synchronized void setRegisteredUser(String name, String email, String unit) {
+        setRegisteredUser(name, email, unit, null);
+    }
+
+    public synchronized void setRegisteredUser(String name, String email, String unit, String password) {
         currentUser = new User("user-" + System.currentTimeMillis(), name, email, unit, null);
+        userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
         saveUser();
-        // Also persist as list of known users for login validation
-        saveRegisteredUser(name, email, unit);
+        saveRegisteredUser(name, email, unit, password);
     }
 
     private static final String KEY_REGISTERED_USERS = "registered_users";
 
+    private static String hashPassword(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                sb.append(String.format(java.util.Locale.US, "%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(raw.hashCode());
+        }
+    }
+
     private void saveRegisteredUser(String name, String email, String unit) {
-        // Store as JSON array of objects {name,email,unit}
+        saveRegisteredUser(name, email, unit, null);
+    }
+
+    private void saveRegisteredUser(String name, String email, String unit, String password) {
         String existing = userPrefs.getString(KEY_REGISTERED_USERS, "[]");
+        String passwordHash = hashPassword(password);
         try {
             JSONArray arr = new JSONArray(existing);
-            // Check duplicate email
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 if (email.equalsIgnoreCase(o.optString("email"))) {
-                    // Update
                     o.put("name", name);
                     o.put("unit", unit);
+                    if (!passwordHash.isEmpty()) {
+                        o.put("passwordHash", passwordHash);
+                    }
                     userPrefs.edit().putString(KEY_REGISTERED_USERS, arr.toString()).apply();
                     return;
                 }
@@ -185,12 +230,53 @@ public final class PersistentRepository {
             obj.put("name", name);
             obj.put("email", email);
             obj.put("unit", unit);
+            if (!passwordHash.isEmpty()) {
+                obj.put("passwordHash", passwordHash);
+            }
             obj.put("createdAt", System.currentTimeMillis());
             arr.put(obj);
             userPrefs.edit().putString(KEY_REGISTERED_USERS, arr.toString()).apply();
         } catch (Exception e) {
             // ignore
         }
+    }
+
+    /**
+     * Verifies credentials against registered users. Returns the authenticated User on success,
+     * or null if no account exists for {@code email} or the password does not match.
+     */
+    public synchronized User authenticate(String email, String password) {
+        if (email == null || email.trim().isEmpty() || password == null || password.isEmpty()) {
+            return null;
+        }
+        String trimmedEmail = email.trim();
+        String existing = userPrefs.getString(KEY_REGISTERED_USERS, "[]");
+        try {
+            JSONArray arr = new JSONArray(existing);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.getJSONObject(i);
+                if (trimmedEmail.equalsIgnoreCase(o.optString("email"))) {
+                    String storedHash = o.optString("passwordHash", "");
+                    String candidateHash = hashPassword(password);
+                    if (!storedHash.isEmpty() && !storedHash.equals(candidateHash)) {
+                        return null;
+                    }
+                    if (storedHash.isEmpty() && !candidateHash.isEmpty()) {
+                        o.put("passwordHash", candidateHash);
+                        userPrefs.edit().putString(KEY_REGISTERED_USERS, arr.toString()).apply();
+                    }
+                    String name = o.optString("name", "Resident");
+                    String unit = o.optString("unit", "C-204");
+                    currentUser.name = name;
+                    currentUser.email = trimmedEmail;
+                    currentUser.apartmentUnit = unit;
+                    userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
+                    saveUser();
+                    return getCurrentUser();
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
     }
 
     public synchronized boolean isEmailRegistered(String email) {
@@ -263,6 +349,8 @@ public final class PersistentRepository {
             if (announcements.isEmpty() && residents.isEmpty()) {
                 seed();
                 saveAll();
+            } else if (!isEmailRegistered("maya@cedargrove.demo")) {
+                saveRegisteredUser("Maya Chen", "maya@cedargrove.demo", "C-204");
             }
         }
     }
@@ -345,6 +433,10 @@ public final class PersistentRepository {
         documents.add(new CommunityDocument("D-03", "Community handbook", "Guides", "Guides for community facilities, shared-space guidance, and everyday contacts.", "PDF · 1.8 MB"));
         documents.add(new CommunityDocument("D-02", "Move-in checklist", "Forms", "Checklist for residents preparing a move into the community.", "PDF · 420 KB"));
         documents.add(new CommunityDocument("D-01", "House rules summary", "Policies", "Summary of shared-space etiquette and community quiet hours.", "PDF · 860 KB"));
+
+        if (!isEmailRegistered("maya@cedargrove.demo")) {
+            saveRegisteredUser("Maya Chen", "maya@cedargrove.demo", "C-204");
+        }
 
         nextNumber = 1;
     }
