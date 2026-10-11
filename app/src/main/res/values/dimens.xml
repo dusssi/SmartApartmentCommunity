@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spacing, radius and size tokens. Spacing follows a 4dp base scale. -->
+<resources>
+    <!-- Spacing scale -->
+    <dimen name="space_2xs">4dp</dimen>
+    <dimen name="space_xs">8dp</dimen>
+    <dimen name="space_sm">12dp</dimen>
+    <dimen name="space_md">16dp</dimen>
+    <dimen name="space_lg">20dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+    <dimen name="space_2xl">32dp</dimen>
+
+    <!-- Page gutters -->
+    <dimen name="page_horizontal">20dp</dimen>
+    <dimen name="page_vertical">12dp</dimen>
+
+    <!-- Corner radii -->
+    <dimen name="radius_sm">10dp</dimen>
+    <dimen name="radius_md">14dp</dimen>
+    <dimen name="radius_card">16dp</dimen>
+    <dimen name="radius_pill">20dp</dimen>
+
+    <!-- Sizes and touch targets -->
+    <dimen name="touch_min">48dp</dimen>
+    <dimen name="button_height">50dp</dimen>
+    <dimen name="icon_container">44dp</dimen>
+    <dimen name="icon_size">22dp</dimen>
+    <dimen name="stroke_hairline">1dp</dimen>
+
+    <!-- Elevation -->
+    <dimen name="elevation_card">1dp</dimen>
+    <dimen name="elevation_nav">4dp</dimen>
+
+    <!-- Motion distances -->
+    <dimen name="motion_enter_offset">12dp</dimen>
+</resources>

@@ -12,6 +12,15 @@ A native Android (Java/XML) frontend for demonstrating common apartment-communit
 - System dialer hand-off (`ACTION_DIAL`) for configured public emergency numbers; no call permission is requested.
 - Reusable XML layouts and Material Components, fictional records, form validation and empty states.
 
+## Design system and motion (Phase 2 UI)
+
+- Design tokens live in `app/src/main/res/values/` (`colors.xml`, `dimens.xml`, `styles.xml`, `themes.xml`). The palette is a provisional deep-emerald / warm off-white direction. **No Google Stitch exports were in the repository, so this is not a Stitch-faithful implementation.** See [docs/UI_UX_AUDIT.md](docs/UI_UX_AUDIT.md).
+- Reusable motion helpers are in `app/src/main/java/com/apartment/community/ui/Motion.java`. They use short fade/slide, staggered reveal and press-scale transforms, and respect the system animator-duration setting. See [docs/ANIMATIONS.md](docs/ANIMATIONS.md).
+- The app uses the Material 3 **light** theme only. Dark mode is not supported.
+- Edge-to-edge: system bars and display cutouts are padded at the root, and the keyboard inset is applied to the content. The bottom navigation hides while the keyboard is open.
+
+Documentation: [UI/UX audit](docs/UI_UX_AUDIT.md) · [Design system](docs/DESIGN_SYSTEM.md) · [Animations](docs/ANIMATIONS.md) · [Features](docs/FEATURES.md) · [Testing](docs/TESTING.md).
+
 ## Technology
 
 - Java 17 language compatibility, Android Views and XML resources.
@@ -50,6 +59,14 @@ To build and run unit tests if added later:
 
 No automated Android test suite is currently configured. See [docs/TESTING.md](docs/TESTING.md) for the manual checklist and the verification state for this checkout.
 
+Static checks that do not need the Android SDK:
+
+```bash
+python3 scripts/verify_resources.py   # XML well-formedness and resource references
+```
+
+The Gradle build has **not** been verified in the Phase 2 environment (no JDK or Android SDK was available). Run `./gradlew assembleDebug` before relying on this change.
+
 ## Install
 
 With an Android device/emulator connected:
@@ -78,6 +95,8 @@ Open **Smart Community** from the launcher. On Android Studio, select the `app` 
 - Visitor approval, request/complaint updates, management actions and RSVP are local demonstrations only.
 - Notifications are in-app demo records only; there is no push service.
 - Documents are sample listings without backing files or download/open behavior.
+- Dark theme is not supported. Stitch design fidelity cannot be claimed until the Stitch references are supplied.
+- The splash/entry screen is the login page; there is no separate branded splash screen.
 - Public emergency numbers displayed are India-specific. Verify local emergency numbers for your jurisdiction before using them. Sample community contacts have no dial action.
 - The future architecture target is Android presentation → repository/data access → Spring Boot REST API → MySQL, with server-enforced authorization and durable records. This backend has not been implemented.
 

@@ -10,9 +10,11 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.apartment.community.R;
+import com.apartment.community.ui.Motion;
 import com.google.android.material.card.MaterialCardView;
 
 import java.util.ArrayList;
@@ -31,10 +33,37 @@ public class SimpleListAdapter extends RecyclerView.Adapter<SimpleListAdapter.Ro
         this.onRowClick = onRowClick;
     }
 
+    /**
+     * Replaces the visible rows with a minimal diff. Typing in search therefore only inserts,
+     * removes or rebinds the rows that changed, so the list does not replay after every keystroke
+     * and the scroll position is preserved for unchanged rows.
+     */
     public void submitRows(List<ListRow> nextRows) {
+        final List<ListRow> previous = new ArrayList<>(rows);
+        DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override public int getOldListSize() { return previous.size(); }
+            @Override public int getNewListSize() { return nextRows.size(); }
+
+            @Override
+            public boolean areItemsTheSame(int oldPosition, int newPosition) {
+                return sameText(previous.get(oldPosition).id, nextRows.get(newPosition).id);
+            }
+
+            @Override
+            public boolean areContentsTheSame(int oldPosition, int newPosition) {
+                ListRow a = previous.get(oldPosition);
+                ListRow b = nextRows.get(newPosition);
+                return sameText(a.title, b.title) && sameText(a.subtitle, b.subtitle)
+                        && sameText(a.metadata, b.metadata) && sameText(a.badge, b.badge);
+            }
+        });
         rows.clear();
         rows.addAll(nextRows);
-        notifyDataSetChanged();
+        result.dispatchUpdatesTo(this);
+    }
+
+    private static boolean sameText(String a, String b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     @NonNull
@@ -46,6 +75,7 @@ public class SimpleListAdapter extends RecyclerView.Adapter<SimpleListAdapter.Ro
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(dp(2), dp(5), dp(2), dp(7));
         card.setLayoutParams(params);
+        Motion.attachPressFeedback(card);
         return new RowHolder(card,
                 root.findViewById(R.id.rowMarker),
                 root.findViewById(R.id.rowTitle),
