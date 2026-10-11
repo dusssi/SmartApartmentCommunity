@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 ROOT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), ".."))
 RES = os.path.join(ROOT, "app", "src", "main", "res")
 JAVA = os.path.join(ROOT, "app", "src", "main", "java")
+MANIFEST = os.path.join(ROOT, "app", "src", "main", "AndroidManifest.xml")
 
 problems = []
 defined = {}  # type -> set(names)
@@ -31,13 +32,17 @@ def add_defined(rtype, name):
 
 # --- 1 & collect definitions -------------------------------------------------
 xml_files = []
+if os.path.isfile(MANIFEST):
+    xml_files.append(MANIFEST)
 for dirpath, _, files in os.walk(RES):
+    folder = os.path.basename(dirpath).split("-")[0]
     for f in files:
+        if f.endswith(".png") and folder in ("drawable", "mipmap"):
+            add_defined(folder, os.path.splitext(f)[0])
         if not f.endswith(".xml"):
             continue
         path = os.path.join(dirpath, f)
         xml_files.append(path)
-        folder = os.path.basename(dirpath).split("-")[0]
         try:
             tree = ET.parse(path)
         except ET.ParseError as exc:
@@ -64,6 +69,12 @@ for dirpath, _, files in os.walk(RES):
             for key, value in el.attrib.items():
                 if value.startswith("@+id/"):
                     add_defined("id", value[len("@+id/"):])
+
+if os.path.isfile(MANIFEST):
+    try:
+        ET.parse(MANIFEST)
+    except ET.ParseError as exc:
+        problems.append(f"AndroidManifest.xml: not well-formed: {exc}")
 
 # --- 2. XML references -------------------------------------------------------
 REF = re.compile(r"@(?:\+)?(?:android:)?([a-z]+)/([A-Za-z0-9_.]+)")

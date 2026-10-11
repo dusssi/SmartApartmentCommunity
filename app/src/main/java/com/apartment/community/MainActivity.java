@@ -60,6 +60,7 @@ import com.apartment.community.model.User;
 import com.apartment.community.model.Visitor;
 import com.apartment.community.repository.PersistentRepository;
 import com.apartment.community.ui.Motion;
+import com.apartment.community.ui.UiFeedback;
 import com.apartment.community.util.Validation;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
@@ -97,6 +98,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean animateNextRender = true;
     private boolean animateCurrentRender = true;
     private boolean isSubmitting = false;
+    private boolean splashCompleted = false;
 
     private static final class Route {
         final String name;
@@ -174,48 +176,90 @@ public class MainActivity extends AppCompatActivity {
         ViewCompat.requestApplyInsets(screenRoot);
 
         if (savedInstanceState != null && savedInstanceState.containsKey("current_route")) {
+            splashCompleted = savedInstanceState.getBoolean("splash_completed", true);
             String roleName = savedInstanceState.getString("current_role", "");
-            if (!roleName.isEmpty()) {
+            if (!roleName.isEmpty() && repository.isAuthenticated()) {
                 try { repository.setRole(CommunityRole.valueOf(roleName)); }
                 catch (IllegalArgumentException ignored) { repository.resetRole(); }
             }
             backStack.add(new Route(savedInstanceState.getString("current_route", "LOGIN"),
                     savedInstanceState.getString("current_argument", "")));
-            if (!isAuthRoute(current().name) && repository.getCurrentUser().role == null) {
+            if (!isAuthRoute(current().name) && (!repository.isAuthenticated() || repository.getCurrentUser().role == null)) {
                 backStack.clear();
                 backStack.add(new Route("LOGIN"));
             }
         } else {
-            // If user already logged in and has role, go to HOME, else LOGIN
             User current = repository.getCurrentUser();
-            if (current != null && current.role != null && current.email != null && !current.email.isEmpty()) {
+            if (repository.isAuthenticated() && current != null && current.role != null
+                    && current.email != null && !current.email.isEmpty()) {
                 backStack.add(new Route("HOME"));
             } else {
                 backStack.add(new Route("LOGIN"));
             }
         }
         render();
+        if (!splashCompleted) {
+            splashCompleted = true;
+            showStartupSplashOverlay();
+        }
+    }
+
+    private void showStartupSplashOverlay() {
+        if (screenRoot == null || !Motion.areEnabled(this)) return;
+        final View splashView = LayoutInflater.from(this).inflate(R.layout.view_splash, screenRoot, false);
+        View logo = splashView.findViewById(R.id.splashLogo);
+        View title = splashView.findViewById(R.id.splashTitle);
+        View tagline = splashView.findViewById(R.id.splashTagline);
+        View accentBar = splashView.findViewById(R.id.splashAccentBar);
+        screenRoot.addView(splashView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        Motion.animateSplash(splashView, logo, title, tagline, accentBar, () -> {
+            if (screenRoot != null && splashView.getParent() == screenRoot) {
+                screenRoot.removeView(splashView);
+            }
+        });
     }
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
+        outState.putBoolean("splash_completed", splashCompleted);
         if (!backStack.isEmpty()) {
             Route route = current();
             outState.putString("current_route", route.name);
             outState.putString("current_argument", route.id);
             CommunityRole role = repository.getCurrentUser().role;
-            if (role != null) outState.putString("current_role", role.name());
+            if (role != null && repository.isAuthenticated()) {
+                outState.putString("current_role", role.name());
+            }
         }
     }
 
     @Override
     public void onBackPressed() {
+        if (isSubmitting) return;
         if (backStack.size() > 1) {
             backStack.remove(backStack.size() - 1);
-            render();
-        } else if (!backStack.isEmpty() && !"HOME".equals(current().name)) {
-            rootRoute("HOME");
+            if (!isAuthRoute(current().name) && (!repository.isAuthenticated() || repository.getCurrentUser().role == null)) {
+                rootRoute("LOGIN");
+            } else {
+                render();
+            }
+        } else if (!backStack.isEmpty()) {
+            String currentRoute = current().name;
+            if (isAuthRoute(currentRoute)) {
+                if ("ROLE_PICKER".equals(currentRoute)) {
+                    repository.logout();
+                    rootRoute("LOGIN");
+                } else {
+                    super.onBackPressed();
+                }
+            } else if (!"HOME".equals(currentRoute) && repository.isAuthenticated()
+                    && repository.getCurrentUser().role != null) {
+                rootRoute("HOME");
+            } else {
+                super.onBackPressed();
+            }
         } else {
             super.onBackPressed();
         }
@@ -261,11 +305,15 @@ public class MainActivity extends AppCompatActivity {
         bottomNav = null;
         Route route = current();
         if (isAuthRoute(route.name)) {
+            if ("ROLE_PICKER".equals(route.name) && !repository.isAuthenticated()) {
+                rootRoute("LOGIN");
+                return;
+            }
             renderAuth(route);
             return;
         }
-        if (repository.getCurrentUser().role == null) {
-            rootRoute("ROLE_PICKER");
+        if (!repository.isAuthenticated() || repository.getCurrentUser().role == null) {
+            rootRoute(repository.isAuthenticated() ? "ROLE_PICKER" : "LOGIN");
             return;
         }
         renderMain(route);
@@ -345,6 +393,13 @@ public class MainActivity extends AppCompatActivity {
             LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(dp(44), dp(44));
             backParams.setMargins(0, 0, dp(8), 0);
             bar.addView(back, backParams);
+        } else if ("HOME".equals(route.name)) {
+            ImageView brandLogo = new ImageView(this);
+            brandLogo.setImageResource(R.drawable.ic_app_logo);
+            brandLogo.setContentDescription(getString(R.string.app_name));
+            LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+            logoParams.setMargins(0, 0, dp(10), 0);
+            bar.addView(brandLogo, logoParams);
         }
 
         LinearLayout heading = new LinearLayout(this);
@@ -536,6 +591,22 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialButton login = fullButton("Sign in", true);
         addTopMargin(page, login, 18);
+        MaterialButton demo = fullButton("Create account", false);
+        addTopMargin(page, demo, 10);
+        demo.setOnClickListener(v -> {
+            if (!isSubmitting) navigate("REGISTER");
+        });
+
+        LinearLayout links = new LinearLayout(this);
+        links.setGravity(Gravity.CENTER);
+        links.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton forgot = textButton("Forgot password?");
+        links.addView(forgot, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        addTopMargin(page, links, 10);
+        forgot.setOnClickListener(v -> {
+            if (!isSubmitting) navigate("FORGOT");
+        });
+
         login.setOnClickListener(v -> {
             if (isSubmitting) return;
             boolean ok = true;
@@ -544,51 +615,45 @@ public class MainActivity extends AppCompatActivity {
             Validation.Result passRes = Validation.validatePassword(password.rawValue());
             if (!passRes.valid) { password.error(passRes.error); ok = false; } else password.clearError();
 
-            if (!ok) return;
-
-            // Real authentication: check if email is registered
-            User registered = repository.findRegisteredUserByEmail(email.value());
-            if (registered == null) {
-                // For first-time users, allow if email format valid, but suggest registration
-                // Check if it's a known demo account pattern
-                if (!email.value().contains("@")) {
-                    email.error("No account found for this email");
-                    return;
-                }
-                // Allow login for demo purposes but create user if not exists? No, require registration
-                // To avoid blocking, we allow login but log that it's a new user - but we want to remove demo shortcuts
-                // So we will show error and suggest registration
-                email.error("No account found. Please create account first");
+            if (!ok) {
+                Motion.shakeError(login);
                 return;
             }
 
             isSubmitting = true;
-            login.setEnabled(false);
-            login.setText("Signing in...");
+            Motion.setButtonLoading(login, "Signing in...", email.input, password.input, demo, forgot);
 
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                repository.setLoginEmail(email.value());
-                // Restore name from registered user
-                if (registered != null) {
-                    repository.updateProfile(registered.name, registered.email, registered.apartmentUnit);
-                }
-                hideKeyboard();
+            boolean emailRegistered = repository.isEmailRegistered(email.value());
+            User authenticated = repository.authenticate(email.value(), password.rawValue());
+            if (authenticated == null) {
                 isSubmitting = false;
-                navigate("ROLE_PICKER");
-            }, 400);
+                Motion.restoreButton(login, "Sign in", email.input, password.input, demo, forgot);
+                if (!emailRegistered) {
+                    email.error("No account found for this email. Please create an account first.");
+                    Motion.shakeError(email.layout);
+                } else {
+                    password.error("Invalid credentials. Please check your password and try again.");
+                    Motion.shakeError(password.layout);
+                }
+                return;
+            }
+
+            hideKeyboard();
+            Motion.completeButtonWithConfirmation(login, getString(R.string.feedback_login_success), "Sign in", () -> {
+                isSubmitting = false;
+                UiFeedback.showSuccess(
+                        this,
+                        getString(R.string.feedback_login_success),
+                        getString(R.string.feedback_login_success_subtitle),
+                        700L,
+                        () -> {
+                            CommunityRole existingRole = repository.getCurrentUser().role;
+                            if (existingRole != null) rootRoute("HOME");
+                            else navigate("ROLE_PICKER");
+                        }
+                );
+            }, email.input, password.input, demo, forgot);
         });
-
-        MaterialButton demo = fullButton("Create account", false);
-        addTopMargin(page, demo, 10);
-        demo.setOnClickListener(v -> navigate("REGISTER"));
-
-        LinearLayout links = new LinearLayout(this);
-        links.setGravity(Gravity.CENTER);
-        links.setOrientation(LinearLayout.HORIZONTAL);
-        MaterialButton forgot = textButton("Forgot password?");
-        links.addView(forgot, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
-        addTopMargin(page, links, 10);
-        forgot.setOnClickListener(v -> navigate("FORGOT"));
         addDisclaimer(page);
         attachAuthPage(page);
     }
@@ -644,19 +709,27 @@ public class MainActivity extends AppCompatActivity {
             r = Validation.validatePhone(phone.value(), false);
             if (!r.valid) { phone.error(r.error); ok = false; } else phone.clearError();
 
-            if (!ok) return;
+            if (!ok) {
+                Motion.shakeError(create);
+                return;
+            }
 
             isSubmitting = true;
-            create.setEnabled(false);
-            create.setText("Creating account...");
+            Motion.setButtonLoading(create, "Creating account...",
+                    name.input, email.input, password.input, confirm.input, unit.input, phone.input);
 
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                repository.setRegisteredUser(name.value(), email.value(), unit.value());
-                hideKeyboard();
+            repository.setRegisteredUser(name.value(), email.value(), unit.value(), password.rawValue());
+            hideKeyboard();
+            Motion.completeButtonWithConfirmation(create, getString(R.string.feedback_register_success), "Create account", () -> {
                 isSubmitting = false;
-                Toast.makeText(this, "Account created. Choose your role.", Toast.LENGTH_SHORT).show();
-                navigate("ROLE_PICKER");
-            }, 500);
+                UiFeedback.showSuccess(
+                        this,
+                        getString(R.string.feedback_register_success),
+                        getString(R.string.feedback_register_success_subtitle),
+                        750L,
+                        () -> navigate("ROLE_PICKER")
+                );
+            }, name.input, email.input, password.input, confirm.input, unit.input, phone.input);
         });
         addDisclaimer(page);
         attachAuthPage(page);
@@ -672,29 +745,32 @@ public class MainActivity extends AppCompatActivity {
         MaterialButton send = fullButton("Send reset instructions", true);
         addTopMargin(page, send, 18);
         send.setOnClickListener(v -> {
+            if (isSubmitting) return;
             Validation.Result r = Validation.validateEmail(email.value());
             if (!r.valid) {
                 email.error(r.error);
+                Motion.shakeError(email.layout);
                 return;
             }
             email.clearError();
             if (!repository.isEmailRegistered(email.value())) {
                 email.error("No account found for this email");
+                Motion.shakeError(email.layout);
                 return;
             }
             isSubmitting = true;
-            send.setEnabled(false);
-            send.setText("Sending...");
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Motion.setButtonLoading(send, "Verifying account...", email.input);
+            hideKeyboard();
+            Motion.completeButtonWithConfirmation(send, "Instructions ready", "Send reset instructions", () -> {
                 isSubmitting = false;
-                send.setEnabled(true);
-                send.setText("Send reset instructions");
-                new AlertDialog.Builder(this)
-                        .setTitle("Reset instructions sent")
-                        .setMessage("If an account exists for " + email.value() + ", password reset instructions have been saved locally. In production, this would send an email via Spring Boot backend.")
-                        .setPositiveButton("Got it", null)
-                        .show();
-            }, 600);
+                UiFeedback.showSuccess(
+                        this,
+                        "Reset instructions saved",
+                        "Account verified for " + email.value() + ". Local recovery instructions have been recorded on this device.",
+                        0L,
+                        null
+                );
+            }, email.input);
         });
         addDisclaimer(page);
         attachAuthPage(page);
@@ -805,9 +881,9 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout brand = new LinearLayout(this);
         brand.setOrientation(LinearLayout.HORIZONTAL);
         brand.setGravity(Gravity.CENTER_VERTICAL);
-        TextView mark = text("CG", 17, R.color.white, true);
-        mark.setGravity(Gravity.CENTER);
-        mark.setBackground(shape(color(R.color.primary), dp(16), color(R.color.primary), 0));
+        ImageView mark = new ImageView(this);
+        mark.setImageResource(R.drawable.ic_app_logo);
+        mark.setContentDescription(getString(R.string.app_name));
         brand.addView(mark, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
@@ -1122,13 +1198,24 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setPadding(dp(17), dp(16), dp(17), dp(16));
-        info.addView(text("Smart Apartment Community", 15, R.color.text_primary, true));
+        LinearLayout aboutHeader = new LinearLayout(this);
+        aboutHeader.setOrientation(LinearLayout.HORIZONTAL);
+        aboutHeader.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView aboutLogo = new ImageView(this);
+        aboutLogo.setImageResource(R.drawable.ic_app_logo);
+        aboutLogo.setContentDescription(getString(R.string.app_name));
+        LinearLayout.LayoutParams aboutLogoParams = new LinearLayout.LayoutParams(dp(40), dp(40));
+        aboutLogoParams.rightMargin = dp(12);
+        aboutHeader.addView(aboutLogo, aboutLogoParams);
+        aboutHeader.addView(text("Smart Apartment Community", 15, R.color.text_primary, true));
+        info.addView(aboutHeader);
         TextView body = text("Native Android Java/XML · Persistent local storage · Blue/teal Stitch-inspired design · Future: Spring Boot + MySQL backend with secure auth and sync.", 13, R.color.text_secondary, false);
         body.setLineSpacing(dp(3), 1f);
-        addTopMargin(info, body, 7);
+        addTopMargin(info, body, 8);
         about.addView(info);
         addTopMargin(content, about, 10);
         MaterialButton logout = fullButton("Sign out", false);
+        logout.setTextColor(color(R.color.danger));
         addTopMargin(content, logout, 20);
         logout.setOnClickListener(v -> confirmLogout());
     }
@@ -1165,7 +1252,7 @@ public class MainActivity extends AppCompatActivity {
     private void showList(Route route, FrameLayout panel) {
         String type = route.name;
         final SimpleListAdapter[] adapterHolder = new SimpleListAdapter[1];
-        final TextView[] emptyHolder = new TextView[1];
+        final View[] emptyHolder = new View[1];
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(dp(18), dp(4), dp(18), dp(8));
@@ -1185,6 +1272,7 @@ public class MainActivity extends AppCompatActivity {
 
         String[] choices = filterChoices(type);
         final String[] selectedFilter = new String[]{choices.length == 0 ? "All" : choices[0]};
+        final Chip[] firstChipHolder = new Chip[1];
         if (choices.length > 1) {
             HorizontalScrollView filterScroll = new HorizontalScrollView(this);
             filterScroll.setHorizontalScrollBarEnabled(false);
@@ -1192,7 +1280,8 @@ public class MainActivity extends AppCompatActivity {
             chips.setSingleLine(true);
             chips.setSingleSelection(true);
             chips.setChipSpacingHorizontal(dp(7));
-            for (String choice : choices) {
+            for (int i = 0; i < choices.length; i++) {
+                String choice = choices[i];
                 Chip chip = new Chip(this);
                 chip.setId(View.generateViewId());
                 chip.setText(choice);
@@ -1200,6 +1289,7 @@ public class MainActivity extends AppCompatActivity {
                 chip.setClickable(true);
                 chip.setEnsureMinTouchTargetSize(true);
                 chip.setChecked(choice.equals(selectedFilter[0]));
+                if (i == 0) firstChipHolder[0] = chip;
                 chip.setOnCheckedChangeListener((button, checked) -> {
                     if (checked) {
                         selectedFilter[0] = choice;
@@ -1222,29 +1312,47 @@ public class MainActivity extends AppCompatActivity {
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setClipToPadding(false);
         recycler.setPadding(0, dp(2), 0, dp(12));
+
+        LinearLayout emptyContainer = new LinearLayout(this);
+        emptyContainer.setOrientation(LinearLayout.VERTICAL);
+        emptyContainer.setGravity(Gravity.CENTER);
+        emptyContainer.setPadding(dp(28), dp(20), dp(28), dp(20));
+        emptyContainer.setVisibility(View.GONE);
         TextView empty = text(emptyText(type), 14, R.color.text_secondary, false);
-        emptyHolder[0] = empty;
         empty.setGravity(Gravity.CENTER);
-        empty.setPadding(dp(28), dp(20), dp(28), dp(20));
-        empty.setVisibility(View.GONE);
+        emptyContainer.addView(empty, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        MaterialButton resetEmptyBtn = smallButton("Clear search & filters", false);
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        resetParams.topMargin = dp(12);
+        emptyContainer.addView(resetEmptyBtn, resetParams);
+        resetEmptyBtn.setOnClickListener(v -> {
+            search.input.setText("");
+            selectedFilter[0] = choices.length == 0 ? "All" : choices[0];
+            if (firstChipHolder[0] != null) firstChipHolder[0].setChecked(true);
+            refreshList(type, "", selectedFilter[0], adapterHolder[0], emptyContainer);
+        });
+        emptyHolder[0] = emptyContainer;
+
         listFrame.addView(recycler, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        listFrame.addView(empty, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        listFrame.addView(emptyContainer, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         SimpleListAdapter adapter = new SimpleListAdapter(this, row -> openListRow(type, row.id));
         adapterHolder[0] = adapter;
         recycler.setAdapter(adapter);
-        refreshList(type, "", selectedFilter[0], adapter, empty);
+        refreshList(type, "", selectedFilter[0], adapter, emptyContainer);
         search.input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                refreshList(type, s.toString(), selectedFilter[0], adapter, empty);
+                refreshList(type, s.toString(), selectedFilter[0], adapter, emptyContainer);
             }
             @Override public void afterTextChanged(Editable s) { }
         });
     }
 
     private void refreshList(String type, String query, String filter,
-                             SimpleListAdapter adapter, TextView empty) {
+                             SimpleListAdapter adapter, View empty) {
         if (adapter == null || empty == null) return;
         List<ListRow> rows = rowsFor(type, query == null ? "" : query.trim(), filter);
         adapter.submitRows(rows);
@@ -1469,14 +1577,27 @@ public class MainActivity extends AppCompatActivity {
         for (String entry : item.history) addTimelineRow(content, entry);
         CommunityRole role = repository.getCurrentUser().role;
         if (role == CommunityRole.MAINTENANCE || role == CommunityRole.MANAGEMENT) {
-            MaterialButton action = fullButton(nextComplaintAction(item.status), true);
+            final String actionLabel = nextComplaintAction(item.status);
+            MaterialButton action = fullButton(actionLabel, true);
             addTopMargin(content, action, 14);
             action.setOnClickListener(v -> {
                 if (isSubmitting) return;
-                isSubmitting = true;
-                repository.advanceComplaint(item.id);
-                Toast.makeText(this, "Status updated to " + item.status, Toast.LENGTH_SHORT).show();
-                renderQuietly();
+                Runnable performUpdate = () -> {
+                    isSubmitting = true;
+                    Motion.setButtonLoading(action, "Updating...");
+                    repository.advanceComplaint(item.id);
+                    Motion.completeButtonWithConfirmation(action, "Status: " + item.status, actionLabel, () -> {
+                        isSubmitting = false;
+                        renderQuietly();
+                    });
+                };
+                if ("Resolved".equals(item.status)) {
+                    UiFeedback.showConfirm(this, "Reopen complaint?",
+                            "This will move \"" + item.title + "\" back to Open status.",
+                            "Reopen", getString(R.string.action_cancel), false, performUpdate, null);
+                } else {
+                    performUpdate.run();
+                }
             });
         } else {
             addInfoCard(content, "NEXT STEP", "Management or maintenance staff can update this status.");
@@ -1491,14 +1612,27 @@ public class MainActivity extends AppCompatActivity {
         addInfoCard(content, "REQUEST " + item.id, item.category + " · Apartment " + item.apartmentUnit + "\nSubmitted " + item.createdAt);
         addInfoCard(content, "DESCRIPTION", item.description);
         if (repository.getCurrentUser().role == CommunityRole.MANAGEMENT) {
-            MaterialButton action = fullButton(nextRequestAction(item.status), true);
+            final String actionLabel = nextRequestAction(item.status);
+            MaterialButton action = fullButton(actionLabel, true);
             addTopMargin(content, action, 14);
             action.setOnClickListener(v -> {
                 if (isSubmitting) return;
-                isSubmitting = true;
-                repository.advanceRequest(item.id);
-                Toast.makeText(this, "Status updated to " + item.status, Toast.LENGTH_SHORT).show();
-                renderQuietly();
+                Runnable performUpdate = () -> {
+                    isSubmitting = true;
+                    Motion.setButtonLoading(action, "Updating...");
+                    repository.advanceRequest(item.id);
+                    Motion.completeButtonWithConfirmation(action, "Status: " + item.status, actionLabel, () -> {
+                        isSubmitting = false;
+                        renderQuietly();
+                    });
+                };
+                if ("Completed".equals(item.status)) {
+                    UiFeedback.showConfirm(this, "Reopen request?",
+                            "This will move \"" + item.title + "\" back to Open status.",
+                            "Reopen", getString(R.string.action_cancel), false, performUpdate, null);
+                } else {
+                    performUpdate.run();
+                }
             });
         } else {
             addInfoCard(content, "STATUS", "Request status is updated by management team.");
@@ -1515,14 +1649,27 @@ public class MainActivity extends AppCompatActivity {
         for (String entry : item.history) addTimelineRow(content, entry);
         CommunityRole role = repository.getCurrentUser().role;
         if (role == CommunityRole.SECURITY || role == CommunityRole.MANAGEMENT) {
-            MaterialButton action = fullButton(nextVisitorAction(item.status), true);
+            final String actionLabel = nextVisitorAction(item.status);
+            MaterialButton action = fullButton(actionLabel, true);
             addTopMargin(content, action, 14);
             action.setOnClickListener(v -> {
                 if (isSubmitting) return;
-                isSubmitting = true;
-                repository.advanceVisitor(item.id);
-                Toast.makeText(this, "Status updated to " + item.status, Toast.LENGTH_SHORT).show();
-                renderQuietly();
+                Runnable performUpdate = () -> {
+                    isSubmitting = true;
+                    Motion.setButtonLoading(action, "Updating...");
+                    repository.advanceVisitor(item.id);
+                    Motion.completeButtonWithConfirmation(action, "Status: " + item.status, actionLabel, () -> {
+                        isSubmitting = false;
+                        renderQuietly();
+                    });
+                };
+                if ("Checked out".equals(item.status)) {
+                    UiFeedback.showConfirm(this, "Reset visitor status?",
+                            "Reset " + item.name + " back to Expected arrival status?",
+                            "Reset status", getString(R.string.action_cancel), false, performUpdate, null);
+                } else {
+                    performUpdate.run();
+                }
             });
         } else {
             addInfoCard(content, "VISITOR STATUS", "Entry status is managed by security desk.");
@@ -1537,15 +1684,34 @@ public class MainActivity extends AppCompatActivity {
         addInfoCard(content, "WHEN AND WHERE", item.eventDateTime + "\n" + item.location);
         addInfoCard(content, "ABOUT THIS EVENT", item.description);
         if (item.upcoming) {
-            MaterialButton rsvp = fullButton(item.attending ? "Cancel RSVP" : "I'm interested", true);
+            final String buttonLabel = item.attending ? "Cancel RSVP" : "I'm interested";
+            MaterialButton rsvp = fullButton(buttonLabel, !item.attending);
+            if (item.attending) {
+                rsvp.setTextColor(color(R.color.danger));
+            }
             addTopMargin(content, rsvp, 14);
             rsvp.setOnClickListener(v -> {
                 if (isSubmitting) return;
-                isSubmitting = true;
-                boolean attending = !item.attending;
-                repository.setEventAttendance(item.id, attending);
-                Toast.makeText(this, attending ? "RSVP saved" : "RSVP removed", Toast.LENGTH_SHORT).show();
-                renderQuietly();
+                Runnable updateAttendance = () -> {
+                    isSubmitting = true;
+                    boolean attending = !item.attending;
+                    Motion.setButtonLoading(rsvp, attending ? "Saving RSVP..." : "Cancelling...");
+                    repository.setEventAttendance(item.id, attending);
+                    Motion.completeButtonWithConfirmation(rsvp,
+                            attending ? "RSVP saved" : "RSVP cancelled",
+                            buttonLabel,
+                            () -> {
+                                isSubmitting = false;
+                                renderQuietly();
+                            });
+                };
+                if (item.attending) {
+                    UiFeedback.showConfirm(this, "Cancel RSVP?",
+                            "Are you sure you want to cancel your RSVP for \"" + item.title + "\"?",
+                            "Cancel RSVP", getString(R.string.action_cancel), true, updateAttendance, null);
+                } else {
+                    updateAttendance.run();
+                }
             });
         }
     }
@@ -1591,18 +1757,22 @@ public class MainActivity extends AppCompatActivity {
         MaterialButton unavailable = fullButton("Download document", true);
         addTopMargin(content, unavailable, 14);
         unavailable.setOnClickListener(v -> {
-            // File type validation example
             Validation.Result typeRes = Validation.validateFileType(item.title + ".pdf", new String[]{".pdf", ".doc", ".docx"});
-            Validation.Result sizeRes = Validation.validateFileSize(1024*1024, 10*1024*1024);
+            Validation.Result sizeRes = Validation.validateFileSize(1024 * 1024, 10 * 1024 * 1024);
             if (!typeRes.valid) {
-                Toast.makeText(this, typeRes.error, Toast.LENGTH_SHORT).show();
+                UiFeedback.showError(this, "Unsupported file format", typeRes.error, null);
                 return;
             }
             if (!sizeRes.valid) {
-                Toast.makeText(this, sizeRes.error, Toast.LENGTH_SHORT).show();
+                UiFeedback.showError(this, "File size limit exceeded", sizeRes.error, null);
                 return;
             }
-            Toast.makeText(this, "Document download would start via backend. Local preview not bundled.", Toast.LENGTH_LONG).show();
+            UiFeedback.showError(
+                    this,
+                    "Offline preview unavailable",
+                    "\"" + item.title + "\" (" + item.metadata + ") is listed in the local directory. File downloads will be available once the Spring Boot document service is connected.",
+                    null
+            );
         });
     }
 
@@ -1655,17 +1825,39 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { unit.error(r.error); valid = false; } else unit.clearError();
             r = Validation.validateSpinnerSelection(selected(category), "category");
             if (!r.valid) { Toast.makeText(this, r.error, Toast.LENGTH_SHORT).show(); valid = false; }
-            if (!valid) return;
+            if (!valid) {
+                Motion.shakeError(submit);
+                return;
+            }
             isSubmitting = true;
-            submit.setEnabled(false);
-            submit.setText("Submitting...");
+            Motion.setButtonLoading(submit, "Submitting...",
+                    title.input, description.input, unit.input, category, priority);
             hideKeyboard();
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                Complaint created = repository.addComplaint(title.value(), description.value(), selected(category), selected(priority), unit.value());
-                Toast.makeText(this, "Complaint submitted", Toast.LENGTH_SHORT).show();
+            try {
+                repository.addComplaint(title.value(), description.value(),
+                        selected(category), selected(priority), unit.value());
+                Motion.completeButtonWithConfirmation(submit,
+                        getString(R.string.feedback_complaint_submitted),
+                        "Submit complaint",
+                        () -> {
+                            isSubmitting = false;
+                            UiFeedback.showSuccess(
+                                    this,
+                                    getString(R.string.feedback_complaint_submitted),
+                                    getString(R.string.feedback_complaint_submitted_subtitle),
+                                    800L,
+                                    () -> replaceCurrent("COMPLAINTS", "")
+                            );
+                        },
+                        title.input, description.input, unit.input, category, priority);
+            } catch (Exception ex) {
                 isSubmitting = false;
-                replaceCurrent("COMPLAINTS", "");
-            }, 500);
+                Motion.restoreButton(submit, "Submit complaint",
+                        title.input, description.input, unit.input, category, priority);
+                UiFeedback.showError(this, "Could not submit complaint",
+                        safe(ex.getMessage(), "Please review the form and try again."),
+                        submit::performClick);
+            }
         });
     }
 
@@ -1694,17 +1886,38 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { description.error(r.error); valid = false; } else description.clearError();
             r = Validation.validateUnit(unit.value());
             if (!r.valid) { unit.error(r.error); valid = false; } else unit.clearError();
-            if (!valid) return;
+            if (!valid) {
+                Motion.shakeError(submit);
+                return;
+            }
             isSubmitting = true;
-            submit.setEnabled(false);
-            submit.setText("Submitting...");
+            Motion.setButtonLoading(submit, "Saving...",
+                    title.input, description.input, unit.input, category);
             hideKeyboard();
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
                 repository.addRequest(title.value(), description.value(), selected(category), unit.value());
-                Toast.makeText(this, "Service request submitted", Toast.LENGTH_SHORT).show();
+                Motion.completeButtonWithConfirmation(submit,
+                        getString(R.string.feedback_request_saved),
+                        "Submit service request",
+                        () -> {
+                            isSubmitting = false;
+                            UiFeedback.showSuccess(
+                                    this,
+                                    getString(R.string.feedback_request_saved),
+                                    getString(R.string.feedback_request_saved_subtitle),
+                                    800L,
+                                    () -> replaceCurrent("REQUESTS", "")
+                            );
+                        },
+                        title.input, description.input, unit.input, category);
+            } catch (Exception ex) {
                 isSubmitting = false;
-                replaceCurrent("REQUESTS", "");
-            }, 500);
+                Motion.restoreButton(submit, "Submit service request",
+                        title.input, description.input, unit.input, category);
+                UiFeedback.showError(this, "Could not save request",
+                        safe(ex.getMessage(), "Please review the form and try again."),
+                        submit::performClick);
+            }
         });
     }
 
@@ -1765,17 +1978,38 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { phone.error(r.error); valid = false; } else phone.clearError();
             r = Validation.validateDateNotPast(arrival.getTimeInMillis());
             if (!r.valid) { Toast.makeText(this, r.error, Toast.LENGTH_SHORT).show(); valid = false; }
-            if (!valid) return;
+            if (!valid) {
+                Motion.shakeError(submit);
+                return;
+            }
             isSubmitting = true;
-            submit.setEnabled(false);
-            submit.setText("Saving...");
+            Motion.setButtonLoading(submit, "Saving...",
+                    name.input, unit.input, purpose.input, phone.input, chooseTime);
             hideKeyboard();
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            try {
                 repository.addVisitor(name.value(), unit.value(), purpose.value(), formatArrival(arrival));
-                Toast.makeText(this, "Visitor registered", Toast.LENGTH_SHORT).show();
+                Motion.completeButtonWithConfirmation(submit,
+                        getString(R.string.feedback_visitor_registered),
+                        "Save visitor",
+                        () -> {
+                            isSubmitting = false;
+                            UiFeedback.showSuccess(
+                                    this,
+                                    getString(R.string.feedback_visitor_registered),
+                                    getString(R.string.feedback_visitor_registered_subtitle),
+                                    800L,
+                                    () -> replaceCurrent("VISITORS", "")
+                            );
+                        },
+                        name.input, unit.input, purpose.input, phone.input, chooseTime);
+            } catch (Exception ex) {
                 isSubmitting = false;
-                replaceCurrent("VISITORS", "");
-            }, 500);
+                Motion.restoreButton(submit, "Save visitor",
+                        name.input, unit.input, purpose.input, phone.input, chooseTime);
+                UiFeedback.showError(this, "Could not register visitor",
+                        safe(ex.getMessage(), "Please review the visitor details and try again."),
+                        submit::performClick);
+            }
         });
     }
 
@@ -1806,17 +2040,29 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { title.error(r.error); valid = false; } else title.clearError();
             r = Validation.validateDescription(description.value(), "Details", 8, 1000);
             if (!r.valid) { description.error(r.error); valid = false; } else description.clearError();
-            if (!valid) return;
+            if (!valid) {
+                Motion.shakeError(publish);
+                return;
+            }
             isSubmitting = true;
-            publish.setEnabled(false);
-            publish.setText("Publishing...");
+            Motion.setButtonLoading(publish, "Publishing...",
+                    title.input, description.input, category, priority);
             hideKeyboard();
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                repository.addAnnouncement(title.value(), description.value(), selected(category), selected(priority));
-                Toast.makeText(this, "Announcement published", Toast.LENGTH_SHORT).show();
-                isSubmitting = false;
-                replaceCurrent("ANNOUNCEMENTS", "");
-            }, 500);
+            repository.addAnnouncement(title.value(), description.value(), selected(category), selected(priority));
+            Motion.completeButtonWithConfirmation(publish,
+                    getString(R.string.feedback_announcement_published),
+                    "Publish announcement",
+                    () -> {
+                        isSubmitting = false;
+                        UiFeedback.showSuccess(
+                                this,
+                                getString(R.string.feedback_announcement_published),
+                                "Your announcement is now visible to the community.",
+                                800L,
+                                () -> replaceCurrent("ANNOUNCEMENTS", "")
+                        );
+                    },
+                    title.input, description.input, category, priority);
         });
     }
 
@@ -1847,17 +2093,29 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { location.error(r.error); valid = false; } else location.clearError();
             r = Validation.validateTitle(dateTime.value(), "Date and time", 3, 100);
             if (!r.valid) { dateTime.error(r.error); valid = false; } else dateTime.clearError();
-            if (!valid) return;
+            if (!valid) {
+                Motion.shakeError(create);
+                return;
+            }
             isSubmitting = true;
-            create.setEnabled(false);
-            create.setText("Creating...");
+            Motion.setButtonLoading(create, "Creating...",
+                    title.input, description.input, location.input, dateTime.input);
             hideKeyboard();
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                repository.addEvent(title.value(), description.value(), location.value(), dateTime.value());
-                Toast.makeText(this, "Event created", Toast.LENGTH_SHORT).show();
-                isSubmitting = false;
-                replaceCurrent("EVENTS", "");
-            }, 500);
+            repository.addEvent(title.value(), description.value(), location.value(), dateTime.value());
+            Motion.completeButtonWithConfirmation(create,
+                    getString(R.string.feedback_event_created),
+                    "Create event",
+                    () -> {
+                        isSubmitting = false;
+                        UiFeedback.showSuccess(
+                                this,
+                                getString(R.string.feedback_event_created),
+                                "The community event has been added to the schedule.",
+                                800L,
+                                () -> replaceCurrent("EVENTS", "")
+                        );
+                    },
+                    title.input, description.input, location.input, dateTime.input);
         });
     }
 
@@ -1884,21 +2142,35 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { unit.error(r.error); valid = false; } else unit.clearError();
             r = Validation.validateTitle(household.value(), "Household", 2, 50);
             if (!r.valid) { household.error(r.error); valid = false; } else household.clearError();
-            if (!valid) return;
+            if (!valid) {
+                Motion.shakeError(save);
+                return;
+            }
             isSubmitting = true;
-            save.setEnabled(false);
-            save.setText("Saving...");
+            Motion.setButtonLoading(save, "Saving...", name.input, unit.input, household.input);
+            hideKeyboard();
             try {
                 repository.addResident(name.value(), unit.value(), safe(household.value(), "Resident"));
-                Toast.makeText(this, "Resident added", Toast.LENGTH_SHORT).show();
-                isSubmitting = false;
-                replaceCurrent("RESIDENTS", "");
+                Motion.completeButtonWithConfirmation(save,
+                        getString(R.string.feedback_resident_added),
+                        "Add resident",
+                        () -> {
+                            isSubmitting = false;
+                            UiFeedback.showSuccess(
+                                    this,
+                                    getString(R.string.feedback_resident_added),
+                                    name.value() + " (" + unit.value() + ") has been added to the directory.",
+                                    800L,
+                                    () -> replaceCurrent("RESIDENTS", "")
+                            );
+                        },
+                        name.input, unit.input, household.input);
             } catch (IllegalArgumentException ex) {
                 isSubmitting = false;
-                save.setEnabled(true);
-                save.setText("Add resident");
+                Motion.restoreButton(save, "Add resident", name.input, unit.input, household.input);
                 unit.error(ex.getMessage());
-                Toast.makeText(this, ex.getMessage(), Toast.LENGTH_SHORT).show();
+                Motion.shakeError(unit.layout);
+                UiFeedback.showError(this, "Could not add resident", ex.getMessage(), () -> unit.input.requestFocus());
             }
         });
     }
@@ -1929,16 +2201,28 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { email.error(r.error); valid = false; } else email.clearError();
             r = Validation.validateUnit(unit.value());
             if (!r.valid) { unit.error(r.error); valid = false; } else unit.clearError();
-            if (!valid) return;
+            if (!valid) {
+                Motion.shakeError(save);
+                return;
+            }
             isSubmitting = true;
-            save.setEnabled(false);
-            save.setText("Saving...");
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                repository.updateProfile(name.value(), email.value(), unit.value());
-                Toast.makeText(this, "Profile updated", Toast.LENGTH_SHORT).show();
-                isSubmitting = false;
-                replaceCurrent("PROFILE", "");
-            }, 400);
+            Motion.setButtonLoading(save, "Saving...", name.input, email.input, unit.input);
+            hideKeyboard();
+            repository.updateProfile(name.value(), email.value(), unit.value());
+            Motion.completeButtonWithConfirmation(save,
+                    getString(R.string.feedback_profile_updated),
+                    "Save profile",
+                    () -> {
+                        isSubmitting = false;
+                        UiFeedback.showSuccess(
+                                this,
+                                getString(R.string.feedback_profile_updated),
+                                "Your profile details have been saved.",
+                                750L,
+                                () -> replaceCurrent("PROFILE", "")
+                        );
+                    },
+                    name.input, email.input, unit.input);
         });
     }
 
@@ -2136,29 +2420,30 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addNotFound(LinearLayout content) {
-        content.addView(text("This item is no longer available. Go back to the list and try another entry.", 15, R.color.text_secondary, false));
+        addInfoCard(content, "ITEM UNAVAILABLE",
+                "This record is no longer available or has been removed. Return to the list and choose another entry.");
+        MaterialButton backBtn = fullButton("Return to previous screen", false);
+        addTopMargin(content, backBtn, 14);
+        backBtn.setOnClickListener(v -> onBackPressed());
     }
 
     private void confirmLogout() {
-        new AlertDialog.Builder(this)
-                .setTitle("Sign out?")
-                .setMessage("Your session will end. Your data remains saved locally on this device.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Sign out", (dialog, which) -> {
-                    repository.resetRole();
-                    rootRoute("LOGIN");
-                })
-                .show();
+        UiFeedback.showLogoutConfirm(this, () -> {
+            repository.logout();
+            rootRoute("LOGIN");
+        });
     }
 
     private void openDialer(String number) {
         if (!isDialable(number)) {
-            Toast.makeText(this, "No valid phone number", Toast.LENGTH_SHORT).show();
+            UiFeedback.showError(this, "Invalid phone number", "No valid phone number is configured for this contact.", null);
             return;
         }
         Intent intent = new Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number.trim(), null));
         try { startActivity(intent); }
-        catch (Exception exception) { Toast.makeText(this, "No dialer app available", Toast.LENGTH_SHORT).show(); }
+        catch (Exception exception) {
+            UiFeedback.showError(this, "Dialer unavailable", "No phone dialer application is available on this device.", null);
+        }
     }
 
     private boolean isDialable(String number) {
@@ -2192,6 +2477,7 @@ public class MainActivity extends AppCompatActivity {
         }
         button.setPadding(dp(16), dp(10), dp(16), dp(10));
         button.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        Motion.attachPressFeedback(button);
         return button;
     }
 
@@ -2211,6 +2497,7 @@ public class MainActivity extends AppCompatActivity {
             button.setStrokeWidth(dp(1));
             button.setStrokeColor(ColorStateList.valueOf(color(R.color.outline)));
         }
+        Motion.attachPressFeedback(button);
         return button;
     }
 

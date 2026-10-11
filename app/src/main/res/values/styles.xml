@@ -79,7 +79,7 @@
     </style>
 
     <!-- Card styles -->
-    <style name="Widget.App.Card" parent="Widget.Material3.CardView.ElevatedCard">
+    <style name="Widget.App.Card" parent="Widget.Material3.CardView.Elevated">
         <item name="cardCornerRadius">@dimen/radius_card</item>
         <item name="cardElevation">@dimen/elevation_card</item>
         <item name="strokeColor">@color/outline</item>

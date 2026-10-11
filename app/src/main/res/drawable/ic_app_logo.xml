@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Official in-app brand logo (rounded squircle badge with apartment buildings + teal/green accents) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+
+    <!-- Rounded squircle brand container -->
+    <path
+        android:fillColor="@color/primary_dark"
+        android:pathData="M16,2h32a14,14 0,0 1,14 14v32a14,14 0,0 1,-14 14h-32a14,14 0,0 1,-14 -14v-32a14,14 0,0 1,14 -14z" />
+
+    <!-- Upper brand blue highlight -->
+    <path
+        android:fillColor="@color/primary"
+        android:pathData="M16,2h32a14,14 0,0 1,14 14v22C46,46 18,48 2,38v-22a14,14 0,0 1,14 -14z" />
+
+    <!-- Left apartment tower -->
+    <path
+        android:fillColor="@color/primary_light"
+        android:pathData="M12,24h10a1.5,1.5 0,0 1,1.5 1.5v22.5h-13v-22.5A1.5,1.5 0,0 1,12 24z" />
+    <path
+        android:fillColor="@color/primary_dark"
+        android:pathData="M13.5,28h2.5v2.5h-2.5zM17.5,28h2.5v2.5h-2.5zM13.5,33h2.5v2.5h-2.5zM17.5,33h2.5v2.5h-2.5zM13.5,38h2.5v2.5h-2.5zM17.5,38h2.5v2.5h-2.5z" />
+
+    <!-- Right apartment tower -->
+    <path
+        android:fillColor="@color/secondary_light"
+        android:pathData="M40.5,23L52,19.5a1.5,1.5 0,0 1,1.5 1.5v27h-13z" />
+    <path
+        android:fillColor="@color/secondary_dark"
+        android:pathData="M43,26h2.5v2.5H43zM47,26h2.5v2.5H47zM43,31h2.5v2.5H43zM47,31h2.5v2.5H47zM43,36h2.5v2.5H43zM47,36h2.5v2.5H47z" />
+
+    <!-- Central flagship apartment tower -->
+    <path
+        android:fillColor="@color/white"
+        android:pathData="M23,17L32,11L41,17L41,48L23,48Z" />
+
+    <!-- Teal roofline accent -->
+    <path
+        android:fillColor="@color/secondary"
+        android:pathData="M25.5,18.2L32,14L38.5,18.2L38.5,20.2L32,16L25.5,20.2Z" />
+
+    <!-- Central tower windows -->
+    <path
+        android:fillColor="@color/primary"
+        android:pathData="M26.5,22.5h4v3h-4zM33.5,22.5h4v3h-4zM26.5,28h4v3h-4zM33.5,28h4v3h-4z" />
+    <path
+        android:fillColor="@color/secondary"
+        android:pathData="M26.5,33.5h4v3h-4zM33.5,33.5h4v3h-4z" />
+
+    <!-- Central entrance arch -->
+    <path
+        android:fillColor="@color/primary_dark"
+        android:pathData="M29,41.5a3,3 0,0 1,6 0v6.5h-6z" />
+
+    <!-- Teal & green community courtyard horizon -->
+    <path
+        android:fillColor="@color/secondary"
+        android:pathData="M9,47.5C22,44.5 42,44.5 55,47.5L55,51C42,48.5 22,48.5 9,51Z" />
+    <path
+        android:fillColor="#22C55E"
+        android:pathData="M14,51C26,48.5 38,48.5 50,51C39,54 25,54 14,51Z" />
+</vector>
