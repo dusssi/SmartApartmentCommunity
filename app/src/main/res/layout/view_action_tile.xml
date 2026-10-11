@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Dashboard quick-action tile. The root card is clickable, so MaterialCardView supplies the ripple. -->
+<!-- Dashboard quick-action tile — Stitch-inspired: rounded card, icon container, clear hierarchy -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/actionTileCard"
@@ -19,26 +19,31 @@
         android:orientation="vertical"
         android:paddingStart="@dimen/space_md"
         android:paddingTop="@dimen/space_md"
-        android:paddingEnd="@dimen/space_sm"
-        android:paddingBottom="@dimen/space_sm">
+        android:paddingEnd="@dimen/space_md"
+        android:paddingBottom="@dimen/space_md">
 
-        <ImageView
-            android:id="@+id/actionIcon"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/action_icon_background"
-            android:contentDescription="@null"
-            android:padding="9dp" />
+        <FrameLayout
+            android:layout_width="@dimen/icon_container"
+            android:layout_height="@dimen/icon_container"
+            android:background="@drawable/action_icon_background">
+
+            <ImageView
+                android:id="@+id/actionIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:contentDescription="@null" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/actionTitle"
             style="@style/TextAppearance.App.Title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_xs"
+            android:layout_marginTop="@dimen/space_sm"
             android:maxLines="2"
             android:ellipsize="end"
-            android:textSize="15sp" />
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/actionCaption"
@@ -47,6 +52,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_2xs"
             android:maxLines="2"
-            android:ellipsize="end" />
+            android:ellipsize="end"
+            android:textSize="12sp"
+            android:lineSpacingMultiplier="1.3" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

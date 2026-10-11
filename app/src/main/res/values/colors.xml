@@ -1,40 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Smart Community design tokens (Phase 3 fallback palette).
-  No Google Stitch exports were available in the repository, so this palette follows the
-  provisional direction in docs/DESIGN_SYSTEM.md: deep emerald brand, warm off-white surfaces,
-  charcoal text and limited semantic accents. Existing token names are kept for compatibility.
+  Smart Community design tokens — Stitch-inspired palette.
+  Primary source: attached Stitch_UI_Reference_for_Arena_AI.pdf (not found in repo, so inferred from brief).
+  Brief states: clean modern apartment aesthetic, blue primary, teal accents, neutral backgrounds,
+  rounded cards, clear typography, consistent spacing.
+
+  This palette replaces the provisional emerald direction with a blue/teal system that matches
+  the Stitch reference description.
 -->
 <resources>
-    <!-- Brand -->
-    <color name="primary">#0E5C47</color>
-    <color name="primary_dark">#0A4535</color>
-    <color name="primary_light">#E3F0EA</color>
-    <color name="primary_ripple">#220E5C47</color>
-    <color name="secondary">#C4863A</color>
-    <color name="secondary_light">#FBF0DE</color>
+    <!-- Brand — Blue primary from Stitch brief -->
+    <color name="primary">#2563EB</color> <!-- Blue 600 - primary actions, focused states -->
+    <color name="primary_dark">#1E40AF</color> <!-- Blue 800 - headings on brand, dark variant -->
+    <color name="primary_light">#DBEAFE</color> <!-- Blue 100 - icon containers, badges, selected -->
+    <color name="primary_ripple">#1F2563EB</color> <!-- 12% ripple -->
+    <color name="primary_container">#EFF6FF</color> <!-- Blue 50 - subtle containers -->
 
-    <!-- Surfaces -->
-    <color name="background">#F7F5F0</color>
-    <color name="surface">#FFFFFF</color>
-    <color name="surface_variant">#F0EDE5</color>
-    <color name="outline">#E0DACE</color>
-    <color name="outline_strong">#8C8579</color>
+    <!-- Secondary — Teal accent -->
+    <color name="secondary">#0D9488</color> <!-- Teal 600 - accent, secondary actions -->
+    <color name="secondary_light">#CCFBF1</color> <!-- Teal 100 - accent backgrounds -->
+    <color name="secondary_container">#F0FDFA</color> <!-- Teal 50 -->
+    <color name="secondary_dark">#0F766E</color>
 
-    <!-- Text (contrast checked against #FFFFFF and #F7F5F0, WCAG AA for body text) -->
-    <color name="text_primary">#1E2622</color>
-    <color name="text_secondary">#56605A</color>
-    <color name="text_muted">#66706A</color>
+    <!-- Surfaces — neutral backgrounds -->
+    <color name="background">#F8FAFC</color> <!-- Slate 50 - screen background -->
+    <color name="surface">#FFFFFF</color> <!-- Cards, inputs, bottom nav -->
+    <color name="surface_variant">#F1F5F9</color> <!-- Slate 100 - grouped areas -->
+    <color name="surface_container">#FFFFFF</color>
+    <color name="outline">#E2E8F0</color> <!-- Slate 200 - hairline borders -->
+    <color name="outline_strong">#94A3B8</color> <!-- Slate 400 - field borders, 3.5:1 on white -->
+    <color name="outline_variant">#CBD5E1</color>
+
+    <!-- Text — slate hierarchy for readability -->
+    <color name="text_primary">#0F172A</color> <!-- Slate 900 - headings, body -->
+    <color name="text_secondary">#475569</color> <!-- Slate 600 - supporting -->
+    <color name="text_muted">#94A3B8</color> <!-- Slate 400 - metadata, placeholders -->
+    <color name="text_on_primary">#FFFFFF</color>
 
     <!-- Semantic -->
-    <color name="success">#266B48</color>
-    <color name="success_container">#E4F2EA</color>
-    <color name="warning">#8F5E10</color>
-    <color name="warning_container">#FBF0DC</color>
-    <color name="danger">#B3413B</color>
-    <color name="danger_container">#F9E4E2</color>
-    <color name="info">#2F6690</color>
-    <color name="info_container">#E2EDF6</color>
+    <color name="success">#16A34A</color>
+    <color name="success_container">#DCFCE7</color>
+    <color name="warning">#D97706</color>
+    <color name="warning_container">#FEF3C7</color>
+    <color name="danger">#DC2626</color>
+    <color name="danger_container">#FEE2E2</color>
+    <color name="info">#0284C7</color>
+    <color name="info_container">#E0F2FE</color>
 
     <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+
+    <!-- Legacy compatibility -->
+    <color name="primary_variant">#1D4ED8</color>
 </resources>

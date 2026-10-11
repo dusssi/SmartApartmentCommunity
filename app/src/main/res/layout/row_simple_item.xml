@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Reusable list row: title, supporting text, metadata and a status chip. -->
+<!-- Reusable list row — Stitch: rounded card, marker, clear typography, status pill -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rowCard"
@@ -17,18 +17,18 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:minHeight="@dimen/touch_min"
+        android:minHeight="72dp"
         android:orientation="horizontal"
         android:paddingStart="@dimen/space_md"
-        android:paddingTop="@dimen/space_sm"
+        android:paddingTop="@dimen/space_md"
         android:paddingEnd="@dimen/space_md"
-        android:paddingBottom="@dimen/space_sm">
+        android:paddingBottom="@dimen/space_md">
 
         <View
             android:id="@+id/rowMarker"
             android:layout_width="4dp"
             android:layout_height="40dp"
-            android:layout_marginEnd="@dimen/space_sm"
+            android:layout_marginEnd="@dimen/space_md"
             android:background="@drawable/row_marker" />
 
         <LinearLayout
@@ -70,12 +70,12 @@
             style="@style/TextAppearance.App.Chip"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/space_xs"
+            android:layout_marginStart="@dimen/space_sm"
             android:gravity="center"
             android:maxLines="1"
-            android:paddingStart="@dimen/space_xs"
+            android:paddingStart="@dimen/space_sm"
             android:paddingTop="@dimen/space_2xs"
-            android:paddingEnd="@dimen/space_xs"
+            android:paddingEnd="@dimen/space_sm"
             android:paddingBottom="@dimen/space_2xs"
             android:textSize="11sp" />
     </LinearLayout>

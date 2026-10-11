@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Spacing, radius and size tokens. Spacing follows a 4dp base scale. -->
+<!--
+  Spacing, radius and size tokens — Stitch-aligned.
+  4dp base scale, consistent gutters, rounded cards, accessible touch targets.
+-->
 <resources>
-    <!-- Spacing scale -->
+    <!-- Spacing scale — 4dp base -->
     <dimen name="space_2xs">4dp</dimen>
     <dimen name="space_xs">8dp</dimen>
     <dimen name="space_sm">12dp</dimen>
@@ -9,28 +12,42 @@
     <dimen name="space_lg">20dp</dimen>
     <dimen name="space_xl">24dp</dimen>
     <dimen name="space_2xl">32dp</dimen>
+    <dimen name="space_3xl">40dp</dimen>
 
-    <!-- Page gutters -->
+    <!-- Page gutters — slightly larger for modern breathing room -->
     <dimen name="page_horizontal">20dp</dimen>
-    <dimen name="page_vertical">12dp</dimen>
+    <dimen name="page_vertical">16dp</dimen>
+    <dimen name="content_max_width">600dp</dimen>
 
-    <!-- Corner radii -->
-    <dimen name="radius_sm">10dp</dimen>
-    <dimen name="radius_md">14dp</dimen>
+    <!-- Corner radii — rounded cards as per Stitch -->
+    <dimen name="radius_xs">8dp</dimen>
+    <dimen name="radius_sm">12dp</dimen>
+    <dimen name="radius_md">16dp</dimen>
     <dimen name="radius_card">16dp</dimen>
-    <dimen name="radius_pill">20dp</dimen>
+    <dimen name="radius_lg">20dp</dimen>
+    <dimen name="radius_xl">24dp</dimen>
+    <dimen name="radius_pill">999dp</dimen>
 
     <!-- Sizes and touch targets -->
     <dimen name="touch_min">48dp</dimen>
-    <dimen name="button_height">50dp</dimen>
-    <dimen name="icon_container">44dp</dimen>
+    <dimen name="button_height">52dp</dimen>
+    <dimen name="button_height_small">40dp</dimen>
+    <dimen name="icon_container">48dp</dimen>
+    <dimen name="icon_container_small">40dp</dimen>
     <dimen name="icon_size">22dp</dimen>
+    <dimen name="icon_size_small">20dp</dimen>
     <dimen name="stroke_hairline">1dp</dimen>
+    <dimen name="stroke_medium">1.5dp</dimen>
 
-    <!-- Elevation -->
-    <dimen name="elevation_card">1dp</dimen>
-    <dimen name="elevation_nav">4dp</dimen>
+    <!-- Elevation — subtle, no heavy shadows -->
+    <dimen name="elevation_none">0dp</dimen>
+    <dimen name="elevation_card">2dp</dimen>
+    <dimen name="elevation_card_hover">4dp</dimen>
+    <dimen name="elevation_nav">8dp</dimen>
 
     <!-- Motion distances -->
-    <dimen name="motion_enter_offset">12dp</dimen>
+    <dimen name="motion_enter_offset">16dp</dimen>
+
+    <!-- Typography line heights handled via styles, but keep for compat -->
+    <dimen name="text_line_spacing">4dp</dimen>
 </resources>
