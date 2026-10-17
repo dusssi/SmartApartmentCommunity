@@ -2,6 +2,7 @@ package com.apartment.community.repository;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import com.apartment.community.model.Announcement;
 import com.apartment.community.model.CommunityDocument;
@@ -14,6 +15,7 @@ import com.apartment.community.model.Resident;
 import com.apartment.community.model.ServiceRequest;
 import com.apartment.community.model.User;
 import com.apartment.community.model.Visitor;
+import com.apartment.community.security.AccountStore;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -30,8 +32,15 @@ import java.util.List;
  * Thread-safe via synchronized methods.
  * All data is local to device — no backend sync in this implementation.
  * API layer is abstracted for future Spring Boot + MySQL integration.
+ *
+ * Account management (registration, sign-in, recovery, profile updates and role assignment)
+ * is delegated to the pure-Java {@link AccountStore} + {@code PasswordHasher} security package:
+ * PBKDF2 password hashing with per-account salts, constant-time verification, normalized unique
+ * emails, transactional JSON updates (the store is rewritten only on success) and least-privilege
+ * role assignment. Client-side checks on a single device are NOT server-grade authorization.
  */
 public final class PersistentRepository {
+    private static final String TAG = "PersistentRepository";
     private static final String PREFS_NAME = "smart_community_data_v2";
     private static final String PREFS_USER = "smart_community_user_v2";
     private static final String KEY_ANNOUNCEMENTS = "announcements";
@@ -97,19 +106,42 @@ public final class PersistentRepository {
     }
 
     // --- User management ---
+    //
+    // Account operations are delegated to the pure-Java security package
+    // (AccountStore + PasswordHasher). Every operation is transactional: the
+    // SharedPreferences account store is rewritten only when the operation
+    // succeeds, and failures return honest messages without touching persisted
+    // accounts or the active session.
+
+    private static final String KEY_REGISTERED_USERS = "registered_users";
+
+    /** Outcome of a sign-in attempt; mirrors AccountStore semantics for the UI layer. */
+    public enum LoginStatus { SUCCESS, NO_ACCOUNT, BAD_CREDENTIALS, RECOVERY_REQUIRED, ERROR }
+
+    /** Result of {@link #login(String, String)}; {@code user} is non-null on SUCCESS only. */
+    public static final class LoginResult {
+        public final LoginStatus status;
+        public final User user;
+        public final String message;
+        LoginResult(LoginStatus status, User user, String message) {
+            this.status = status;
+            this.user = user;
+            this.message = message;
+        }
+    }
 
     private void loadUser() {
-        String id = userPrefs.getString(USER_ID, "demo-user");
-        String name = userPrefs.getString(USER_NAME, "Maya Chen");
-        String email = userPrefs.getString(USER_EMAIL, "maya@cedargrove.demo");
-        String unit = userPrefs.getString(USER_UNIT, "C-204");
+        String id = userPrefs.getString(USER_ID, "");
+        String name = userPrefs.getString(USER_NAME, "");
+        String email = userPrefs.getString(USER_EMAIL, "");
+        String unit = userPrefs.getString(USER_UNIT, "");
+        String phone = userPrefs.getString(USER_PHONE, "");
         String roleStr = userPrefs.getString(USER_ROLE, null);
         CommunityRole role = null;
         if (roleStr != null) {
-            try { role = CommunityRole.valueOf(roleStr); } catch (Exception ignored) {}
+            try { role = CommunityRole.valueOf(roleStr); } catch (IllegalArgumentException ignored) { }
         }
-        currentUser = new User(id, name, email, unit, role);
-        // phone is stored but not in User model yet - we store as part of email? keep separate pref
+        currentUser = new User(id.isEmpty() ? "user-local" : id, name, email, unit, phone, role);
     }
 
     private void saveUser() {
@@ -118,24 +150,22 @@ public final class PersistentRepository {
                 .putString(USER_NAME, currentUser.name)
                 .putString(USER_EMAIL, currentUser.email)
                 .putString(USER_UNIT, currentUser.apartmentUnit)
+                .putString(USER_PHONE, currentUser.phone)
                 .putString(USER_ROLE, currentUser.role == null ? null : currentUser.role.name())
                 .apply();
     }
 
     public synchronized User getCurrentUser() {
-        return new User(currentUser.id, currentUser.name, currentUser.email, currentUser.apartmentUnit, currentUser.role);
+        return new User(currentUser.id, currentUser.name, currentUser.email,
+                currentUser.apartmentUnit, currentUser.phone, currentUser.role);
     }
 
-    public synchronized void setRole(CommunityRole role) {
-        currentUser.role = role;
-        userPrefs.edit().putBoolean(USER_AUTHENTICATED, role != null).apply();
-        saveUser();
+    private String accountsJson() {
+        return userPrefs.getString(KEY_REGISTERED_USERS, "[]");
     }
 
-    public synchronized void resetRole() {
-        currentUser.role = null;
-        userPrefs.edit().putBoolean(USER_AUTHENTICATED, false).remove(USER_ROLE).apply();
-        saveUser();
+    private void commitAccounts(String json) {
+        userPrefs.edit().putString(KEY_REGISTERED_USERS, json).apply();
     }
 
     /** Clears the active authentication session while preserving all persisted community and account records. */
@@ -155,164 +185,195 @@ public final class PersistentRepository {
         return hasEmail && flag;
     }
 
-    public synchronized void setLoginEmail(String email) {
-        currentUser.email = email;
-        String localPart = email == null ? "" : email.split("@", 2)[0];
-        localPart = localPart.replaceAll("[._-]+", " ").trim();
-        if ("maya".equalsIgnoreCase(localPart)) {
-            currentUser.name = "Maya Chen";
-        } else if (localPart.isEmpty()) {
-            currentUser.name = "Demo Resident";
-        } else {
-            StringBuilder displayName = new StringBuilder();
-            for (String part : localPart.split("\\s+")) {
-                if (part.isEmpty()) continue;
-                if (displayName.length() > 0) displayName.append(' ');
-                displayName.append(part.substring(0, 1).toUpperCase(java.util.Locale.getDefault()));
-                if (part.length() > 1) displayName.append(part.substring(1));
-            }
-            currentUser.name = displayName.toString();
+    public synchronized boolean isEmailRegistered(String email) {
+        return AccountStore.emailExists(accountsJson(), email);
+    }
+
+    /** True while no account holds a staff role; gates the one-time device-owner bootstrap. */
+    public synchronized boolean isDeviceOwnerSetupAvailable() {
+        return !AccountStore.hasStaffAccount(accountsJson());
+    }
+
+    /** Credential-free snapshots of every local account, for the Management staff-access screen. */
+    public synchronized List<AccountStore.Account> listAccounts() {
+        return AccountStore.listAccounts(accountsJson());
+    }
+
+    /**
+     * Registration: stores the account with a PBKDF2-hashed password and starts an
+     * authenticated session that has no role yet (the role picker follows). Duplicate
+     * (normalized) emails are rejected. Returns {@code null} on success or an honest error
+     * message; the persisted store is unchanged on failure.
+     */
+    public synchronized String registerAccount(String name, String email, String unit,
+                                               String phone, String rawPassword) {
+        String json = accountsJson();
+        AccountStore.Result result;
+        try {
+            result = AccountStore.register(json, name, email, unit, phone, rawPassword);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "registerAccount failed unexpectedly", e);
+            return "Registration failed unexpectedly. Your existing accounts were not changed.";
         }
+        if (!result.ok) {
+            Log.w(TAG, "registerAccount rejected: " + result.error);
+            return result.message;
+        }
+        commitAccounts(result.json);
+        AccountStore.Account account = result.account;
+        currentUser = new User("user-" + System.currentTimeMillis(), account.name, account.email,
+                account.unit, account.phone, null);
         userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
         saveUser();
+        return null;
     }
 
-    public synchronized void setRegisteredUser(String name, String email, String unit) {
-        setRegisteredUser(name, email, unit, null);
-    }
-
-    public synchronized void setRegisteredUser(String name, String email, String unit, String password) {
-        currentUser = new User("user-" + System.currentTimeMillis(), name, email, unit, null);
-        userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
-        saveUser();
-        saveRegisteredUser(name, email, unit, password);
-    }
-
-    private static final String KEY_REGISTERED_USERS = "registered_users";
-
-    private static String hashPassword(String raw) {
-        if (raw == null || raw.isEmpty()) return "";
+    /**
+     * Sign-in against locally stored credentials (PBKDF2 with per-account salt; a verified
+     * legacy unsalted SHA-256 credential is upgraded to PBKDF2 transparently). An account
+     * without a usable stored credential NEVER adopts the entered password — it reports
+     * {@link LoginStatus#RECOVERY_REQUIRED} so the UI can offer the explicit recovery flow.
+     */
+    public synchronized LoginResult login(String email, String rawPassword) {
+        String json = accountsJson();
+        AccountStore.Result result;
         try {
-            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(bytes.length * 2);
-            for (byte b : bytes) {
-                sb.append(String.format(java.util.Locale.US, "%02x", b));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return Integer.toHexString(raw.hashCode());
+            result = AccountStore.authenticate(json, email, rawPassword);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "login failed unexpectedly", e);
+            return new LoginResult(LoginStatus.ERROR, null,
+                    "Sign-in failed unexpectedly. Your accounts were not changed.");
         }
-    }
-
-    private void saveRegisteredUser(String name, String email, String unit) {
-        saveRegisteredUser(name, email, unit, null);
-    }
-
-    private void saveRegisteredUser(String name, String email, String unit, String password) {
-        String existing = userPrefs.getString(KEY_REGISTERED_USERS, "[]");
-        String passwordHash = hashPassword(password);
-        try {
-            JSONArray arr = new JSONArray(existing);
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                if (email.equalsIgnoreCase(o.optString("email"))) {
-                    o.put("name", name);
-                    o.put("unit", unit);
-                    if (!passwordHash.isEmpty()) {
-                        o.put("passwordHash", passwordHash);
-                    }
-                    userPrefs.edit().putString(KEY_REGISTERED_USERS, arr.toString()).apply();
-                    return;
-                }
+        if (result.ok) {
+            if (result.upgraded) {
+                commitAccounts(result.json);
+                Log.i(TAG, "Legacy credential upgraded to PBKDF2 after successful sign-in.");
             }
-            JSONObject obj = new JSONObject();
-            obj.put("name", name);
-            obj.put("email", email);
-            obj.put("unit", unit);
-            if (!passwordHash.isEmpty()) {
-                obj.put("passwordHash", passwordHash);
-            }
-            obj.put("createdAt", System.currentTimeMillis());
-            arr.put(obj);
-            userPrefs.edit().putString(KEY_REGISTERED_USERS, arr.toString()).apply();
-        } catch (Exception e) {
-            // ignore
+            AccountStore.Account account = result.account;
+            currentUser.name = account.name;
+            currentUser.email = account.email;
+            currentUser.apartmentUnit = account.unit;
+            currentUser.phone = account.phone;
+            currentUser.role = account.role;
+            userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
+            saveUser();
+            return new LoginResult(LoginStatus.SUCCESS, getCurrentUser(), null);
+        }
+        switch (result.error) {
+            case NO_ACCOUNT:
+                return new LoginResult(LoginStatus.NO_ACCOUNT, null, result.message);
+            case BAD_CREDENTIALS:
+                return new LoginResult(LoginStatus.BAD_CREDENTIALS, null, result.message);
+            case RECOVERY_REQUIRED:
+                return new LoginResult(LoginStatus.RECOVERY_REQUIRED, null, result.message);
+            default:
+                Log.w(TAG, "login rejected: " + result.error);
+                return new LoginResult(LoginStatus.ERROR, null, result.message);
         }
     }
 
     /**
-     * Verifies credentials against registered users. Returns the authenticated User on success,
-     * or null if no account exists for {@code email} or the password does not match.
+     * Explicit offline recovery for accounts that have NO stored credential (legacy accounts
+     * created before passwords were persisted): sets a new PBKDF2 password after the UI has
+     * obtained informed confirmation. Accounts that already have a password are refused —
+     * without a backend there is no way to verify identity, so password-protected accounts
+     * cannot be reset offline. Returns {@code null} on success or an honest error message.
      */
-    public synchronized User authenticate(String email, String password) {
-        if (email == null || email.trim().isEmpty() || password == null || password.isEmpty()) {
-            return null;
+    public synchronized String recoverAccountSetPassword(String email, String rawPassword) {
+        String json = accountsJson();
+        AccountStore.Result result;
+        try {
+            result = AccountStore.recoverSetPassword(json, email, rawPassword);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "recoverAccountSetPassword failed unexpectedly", e);
+            return "Recovery failed unexpectedly. Your accounts were not changed.";
         }
-        String trimmedEmail = email.trim();
-        String existing = userPrefs.getString(KEY_REGISTERED_USERS, "[]");
-        try {
-            JSONArray arr = new JSONArray(existing);
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                if (trimmedEmail.equalsIgnoreCase(o.optString("email"))) {
-                    String storedHash = o.optString("passwordHash", "");
-                    String candidateHash = hashPassword(password);
-                    if (!storedHash.isEmpty() && !storedHash.equals(candidateHash)) {
-                        return null;
-                    }
-                    if (storedHash.isEmpty() && !candidateHash.isEmpty()) {
-                        o.put("passwordHash", candidateHash);
-                        userPrefs.edit().putString(KEY_REGISTERED_USERS, arr.toString()).apply();
-                    }
-                    String name = o.optString("name", "Resident");
-                    String unit = o.optString("unit", "C-204");
-                    currentUser.name = name;
-                    currentUser.email = trimmedEmail;
-                    currentUser.apartmentUnit = unit;
-                    userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
-                    saveUser();
-                    return getCurrentUser();
-                }
-            }
-        } catch (Exception ignored) {}
+        if (!result.ok) {
+            Log.w(TAG, "recoverAccountSetPassword rejected: " + result.error);
+            return result.message;
+        }
+        commitAccounts(result.json);
         return null;
     }
 
-    public synchronized boolean isEmailRegistered(String email) {
-        String existing = userPrefs.getString(KEY_REGISTERED_USERS, "[]");
+    /**
+     * Profile update for the signed-in account: the stored record is mutated IN PLACE, so the
+     * credential and granted role are preserved, and moving onto an email owned by another
+     * account is rejected. This replaces the old behaviour that silently created a second,
+     * password-less record on email change. Returns {@code null} on success or an honest error
+     * message.
+     */
+    public synchronized String updateProfile(String name, String email, String unit, String phone) {
+        String json = accountsJson();
+        AccountStore.Result result;
         try {
-            JSONArray arr = new JSONArray(existing);
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                if (email.equalsIgnoreCase(o.optString("email"))) return true;
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
-    public synchronized User findRegisteredUserByEmail(String email) {
-        String existing = userPrefs.getString(KEY_REGISTERED_USERS, "[]");
-        try {
-            JSONArray arr = new JSONArray(existing);
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                if (email.equalsIgnoreCase(o.optString("email"))) {
-                    String name = o.optString("name");
-                    String unit = o.optString("unit");
-                    return new User("registered", name, email, unit, null);
-                }
-            }
-        } catch (Exception ignored) {}
-        return null;
-    }
-
-    public synchronized void updateProfile(String name, String email, String unit) {
-        currentUser.name = name;
-        currentUser.email = email;
-        currentUser.apartmentUnit = unit;
+            result = AccountStore.updateAccount(json, currentUser.email, name, email, unit, phone);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "updateProfile failed unexpectedly", e);
+            return "The profile could not be saved. Your existing accounts were not changed.";
+        }
+        if (!result.ok) {
+            Log.w(TAG, "updateProfile rejected: " + result.error);
+            return result.message;
+        }
+        commitAccounts(result.json);
+        AccountStore.Account account = result.account;
+        currentUser.name = account.name;
+        currentUser.email = account.email;
+        currentUser.apartmentUnit = account.unit;
+        currentUser.phone = account.phone;
         saveUser();
-        saveRegisteredUser(name, email, unit);
+        return null;
+    }
+
+    /**
+     * Role selection for the signed-in account (role picker). RESIDENT is always available to
+     * everyone; a staff role is available only while no staff account exists on the device
+     * (one-time device-owner bootstrap). Enforcement lives in {@link AccountStore}, not only in
+     * the UI. Returns {@code null} on success or an honest error message.
+     */
+    public synchronized String chooseOwnRole(CommunityRole role) {
+        return applyRoleAssignment(currentUser.email, role, null, "self");
+    }
+
+    /**
+     * Management-only grant/revoke of another local account's role. Requires the active session
+     * to hold MANAGEMENT. Client-side, single-device enforcement — this is NOT server-grade
+     * authorization (see docs/SECURITY.md). Returns {@code null} on success or an honest error.
+     */
+    public synchronized String grantRole(String targetEmail, CommunityRole role) {
+        if (currentUser == null || currentUser.role != CommunityRole.MANAGEMENT) {
+            return "Only a signed-in Management account can change staff roles.";
+        }
+        String normalizedTarget = AccountStore.normalizeEmail(targetEmail);
+        if (normalizedTarget.equals(AccountStore.normalizeEmail(currentUser.email))) {
+            return "Your own role cannot be changed here. Ask another Management account.";
+        }
+        return applyRoleAssignment(targetEmail, role, CommunityRole.MANAGEMENT, currentUser.email);
+    }
+
+    private String applyRoleAssignment(String targetEmail, CommunityRole role,
+                                       CommunityRole grantedByRole, String grantedByLabel) {
+        String json = accountsJson();
+        AccountStore.Result result;
+        try {
+            result = AccountStore.assignRole(json, targetEmail, role, grantedByRole, grantedByLabel);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "assignRole failed unexpectedly", e);
+            return "The role could not be changed. Your accounts were not changed.";
+        }
+        if (!result.ok) {
+            Log.w(TAG, "assignRole rejected: " + result.error);
+            return result.message;
+        }
+        commitAccounts(result.json);
+        if (result.account != null
+                && result.account.email.equals(AccountStore.normalizeEmail(currentUser.email))) {
+            currentUser.role = result.account.role;
+            userPrefs.edit().putBoolean(USER_AUTHENTICATED, currentUser.role != null).apply();
+            saveUser();
+        }
+        return null;
     }
 
     // --- Data load/save ---
@@ -320,6 +381,15 @@ public final class PersistentRepository {
     private void loadAll() {
         loadUser();
         nextNumber = dataPrefs.getInt(KEY_NEXT_NUMBER, 1);
+
+        // One-time normalization/dedupe of the account store: legacy records may hold
+        // mixed-case emails, and an old profile defect could create duplicate records for
+        // the same person. migrate() never invents credentials and never grants roles.
+        String storedAccounts = accountsJson();
+        String migratedAccounts = AccountStore.migrate(storedAccounts);
+        if (!migratedAccounts.equals(storedAccounts)) {
+            commitAccounts(migratedAccounts);
+        }
 
         if (!dataPrefs.contains(KEY_ANNOUNCEMENTS)) {
             seed(); // first launch
@@ -349,8 +419,6 @@ public final class PersistentRepository {
             if (announcements.isEmpty() && residents.isEmpty()) {
                 seed();
                 saveAll();
-            } else if (!isEmailRegistered("maya@cedargrove.demo")) {
-                saveRegisteredUser("Maya Chen", "maya@cedargrove.demo", "C-204");
             }
         }
     }
@@ -434,9 +502,9 @@ public final class PersistentRepository {
         documents.add(new CommunityDocument("D-02", "Move-in checklist", "Forms", "Checklist for residents preparing a move into the community.", "PDF · 420 KB"));
         documents.add(new CommunityDocument("D-01", "House rules summary", "Policies", "Summary of shared-space etiquette and community quiet hours.", "PDF · 860 KB"));
 
-        if (!isEmailRegistered("maya@cedargrove.demo")) {
-            saveRegisteredUser("Maya Chen", "maya@cedargrove.demo", "C-204");
-        }
+        // Note: no demo account is seeded here. Earlier builds seeded a password-less
+        // "maya@cedargrove.demo" account which any entered password could silently claim;
+        // accounts are now created only through explicit registration or recovery.
 
         nextNumber = 1;
     }
@@ -609,6 +677,7 @@ public final class PersistentRepository {
                 o.put("hostUnit", v.hostUnit);
                 o.put("purpose", v.purpose);
                 o.put("expectedArrival", v.expectedArrival);
+                o.put("phone", v.phone);
                 o.put("status", v.status);
                 JSONArray hist = new JSONArray();
                 for (String h : v.history) hist.put(h);
@@ -631,6 +700,7 @@ public final class PersistentRepository {
                         o.optString("hostUnit"),
                         o.optString("purpose"),
                         o.optString("expectedArrival"),
+                        o.optString("phone", ""),   // backward compatible with pre-phone records
                         o.optString("status", "Expected")
                 );
                 v.history.clear();
@@ -887,15 +957,10 @@ public final class PersistentRepository {
         saveList(KEY_REQUESTS, serializeRequests(requests));
     }
 
-    public synchronized Visitor addVisitor(String name, String unit, String purpose, String arrival) {
-        // Duplicate check: same name + unit + same day
-        for (Visitor existing : visitors) {
-            if (existing.name.equalsIgnoreCase(name.trim()) && existing.hostUnit.equalsIgnoreCase(unit.trim())) {
-                // Allow but warn via duplicate handling in UI layer
-            }
-        }
+    public synchronized Visitor addVisitor(String name, String unit, String purpose, String arrival, String phone) {
         String id = "V-" + (400 + nextNumber++);
-        Visitor value = new Visitor(id, name, unit, purpose, arrival, "Expected");
+        Visitor value = new Visitor(id, name, unit, purpose, arrival,
+                phone == null ? "" : phone.trim(), "Expected");
         visitors.add(0, value);
         addNotification("Visitor registered", name + " is expected at " + unit + ".", "Visitors", "VISITORS");
         saveList(KEY_VISITORS, serializeVisitors(visitors));

@@ -18,6 +18,17 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests {
+            // org.json is part of the Android platform stub, which throws "not mocked" for
+            // every method in local unit tests. The explicit org.json test dependency below
+            // shadows that stub on the unit test classpath so JSONObject/JSONArray behave like
+            // the real library — standard practice for testing JSON-backed persistence code
+            // without an emulator/Robolectric.
+            returnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -25,4 +36,10 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
+
+    // Phase 1 (P0) test dependencies: cover the pure-Java security package
+    // (com.apartment.community.security) with real JUnit tests. These classes have no Android
+    // framework dependency by design, so they run as plain JVM unit tests.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }
