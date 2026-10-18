@@ -59,6 +59,7 @@ import com.apartment.community.model.ServiceRequest;
 import com.apartment.community.model.User;
 import com.apartment.community.model.Visitor;
 import com.apartment.community.repository.PersistentRepository;
+import com.apartment.community.security.AccountStore;
 import com.apartment.community.ui.Motion;
 import com.apartment.community.ui.UiFeedback;
 import com.apartment.community.util.Validation;
@@ -74,6 +75,7 @@ import com.google.android.material.textfield.TextInputLayout;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -177,11 +179,9 @@ public class MainActivity extends AppCompatActivity {
 
         if (savedInstanceState != null && savedInstanceState.containsKey("current_route")) {
             splashCompleted = savedInstanceState.getBoolean("splash_completed", true);
-            String roleName = savedInstanceState.getString("current_role", "");
-            if (!roleName.isEmpty() && repository.isAuthenticated()) {
-                try { repository.setRole(CommunityRole.valueOf(roleName)); }
-                catch (IllegalArgumentException ignored) { repository.resetRole(); }
-            }
+            // The session role is intentionally NOT restored from the bundle: it comes from the
+            // persisted session (account record), so a crafted savedInstanceState cannot
+            // re-apply a role the signed-in account does not hold.
             backStack.add(new Route(savedInstanceState.getString("current_route", "LOGIN"),
                     savedInstanceState.getString("current_argument", "")));
             if (!isAuthRoute(current().name) && (!repository.isAuthenticated() || repository.getCurrentUser().role == null)) {
@@ -228,10 +228,6 @@ public class MainActivity extends AppCompatActivity {
             Route route = current();
             outState.putString("current_route", route.name);
             outState.putString("current_argument", route.id);
-            CommunityRole role = repository.getCurrentUser().role;
-            if (role != null && repository.isAuthenticated()) {
-                outState.putString("current_role", role.name());
-            }
         }
     }
 
@@ -288,7 +284,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isAuthRoute(String route) {
         return "LOGIN".equals(route) || "REGISTER".equals(route) || "FORGOT".equals(route)
-                || "ROLE_PICKER".equals(route);
+                || "RECOVER".equals(route) || "ROLE_PICKER".equals(route);
     }
 
     private boolean isTabRoute(String route) {
@@ -328,6 +324,7 @@ public class MainActivity extends AppCompatActivity {
         if ("LOGIN".equals(route.name)) showLogin();
         else if ("REGISTER".equals(route.name)) showRegistration();
         else if ("FORGOT".equals(route.name)) showForgotPassword();
+        else if ("RECOVER".equals(route.name)) showRecovery(route.id);
         else showRolePicker();
     }
 
@@ -463,6 +460,7 @@ public class MainActivity extends AppCompatActivity {
             case "WORK": return repository.getCurrentUser().role == CommunityRole.SECURITY ? "Gate desk" : "Services";
             case "PROFILE": return "My profile";
             case "SETTINGS": return "Settings";
+            case "RECOVER": return "Account recovery";
             case "ANNOUNCEMENTS": return "Announcements";
             case "RESIDENTS": return "Resident directory";
             case "COMPLAINTS": return repository.getCurrentUser().role == CommunityRole.MAINTENANCE ? "Work queue" : "Complaints";
@@ -623,17 +621,32 @@ public class MainActivity extends AppCompatActivity {
             isSubmitting = true;
             Motion.setButtonLoading(login, "Signing in...", email.input, password.input, demo, forgot);
 
-            boolean emailRegistered = repository.isEmailRegistered(email.value());
-            User authenticated = repository.authenticate(email.value(), password.rawValue());
-            if (authenticated == null) {
+            final String attemptedEmail = email.value();
+            PersistentRepository.LoginResult result = repository.login(attemptedEmail, password.rawValue());
+            if (result.status != PersistentRepository.LoginStatus.SUCCESS) {
                 isSubmitting = false;
                 Motion.restoreButton(login, "Sign in", email.input, password.input, demo, forgot);
-                if (!emailRegistered) {
+                if (result.status == PersistentRepository.LoginStatus.NO_ACCOUNT) {
                     email.error("No account found for this email. Please create an account first.");
                     Motion.shakeError(email.layout);
-                } else {
+                } else if (result.status == PersistentRepository.LoginStatus.BAD_CREDENTIALS) {
                     password.error("Invalid credentials. Please check your password and try again.");
                     Motion.shakeError(password.layout);
+                } else if (result.status == PersistentRepository.LoginStatus.RECOVERY_REQUIRED) {
+                    UiFeedback.showConfirm(
+                            this,
+                            "Account recovery needed",
+                            "This account exists, but no password was ever stored for it on this "
+                                    + "device (older builds did not save one). Offline recovery lets "
+                                    + "you set a new password; your community data is preserved.",
+                            "Open recovery",
+                            getString(R.string.action_cancel),
+                            false,
+                            () -> navigate("RECOVER", attemptedEmail),
+                            null);
+                } else {
+                    UiFeedback.showError(this, "Sign-in failed",
+                            safe(result.message, "Please try again."), null);
                 }
                 return;
             }
@@ -718,7 +731,20 @@ public class MainActivity extends AppCompatActivity {
             Motion.setButtonLoading(create, "Creating account...",
                     name.input, email.input, password.input, confirm.input, unit.input, phone.input);
 
-            repository.setRegisteredUser(name.value(), email.value(), unit.value(), password.rawValue());
+            String registrationError = repository.registerAccount(
+                    name.value(), email.value(), unit.value(), phone.value(), password.rawValue());
+            if (registrationError != null) {
+                isSubmitting = false;
+                Motion.restoreButton(create, "Create account",
+                        name.input, email.input, password.input, confirm.input, unit.input, phone.input);
+                if (repository.isEmailRegistered(email.value())) {
+                    email.error(registrationError);
+                    Motion.shakeError(email.layout);
+                } else {
+                    UiFeedback.showError(this, "Could not create account", registrationError, null);
+                }
+                return;
+            }
             hideKeyboard();
             Motion.completeButtonWithConfirmation(create, getString(R.string.feedback_register_success), "Create account", () -> {
                 isSubmitting = false;
@@ -776,15 +802,142 @@ public class MainActivity extends AppCompatActivity {
         attachAuthPage(page);
     }
 
+    /**
+     * Explicit offline account recovery for accounts that never had a password stored
+     * (legacy records). Honest about the threat model: identity cannot be verified without a
+     * backend, so this flow is only offered for accounts with NO usable credential and requires
+     * an informed confirmation. Accounts that already have a password cannot be reset offline.
+     */
+    private void showRecovery(String presetEmail) {
+        LinearLayout page = authPage(true);
+        addAuthHeader(page, "Account recovery", "Set a password for a local account that never had one");
+        TextView info = text("Offline recovery — this app has no backend, so your identity cannot be "
+                + "verified by email. If this account has no password stored on this device (legacy "
+                + "accounts from older builds), you can set a new password here and its community "
+                + "data is preserved. Accounts that already have a password cannot be reset offline.",
+                13, R.color.text_secondary, false);
+        info.setLineSpacing(dp(3), 1f);
+        info.setPadding(dp(14), dp(12), dp(14), dp(12));
+        info.setBackground(shape(color(R.color.warning_container), dp(14), color(R.color.warning_container), 0));
+        addTopMargin(page, info, 18);
+
+        Field email = createField("Email address", "name@example.com", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, false);
+        if (presetEmail != null && !presetEmail.trim().isEmpty()) email.input.setText(presetEmail.trim());
+        Field password = createField("New password", "At least 6 characters", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false);
+        password.layout.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        Field confirm = createField("Confirm password", "Repeat password", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false);
+        confirm.layout.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+        addTopMargin(page, email.layout, 18);
+        addTopMargin(page, password.layout, 12);
+        addTopMargin(page, confirm.layout, 12);
+        for (Field f : new Field[]{email, password, confirm}) setupClearErrorOnType(f);
+
+        MaterialButton recover = fullButton("Set password and sign in", true);
+        addTopMargin(page, recover, 18);
+        recover.setOnClickListener(v -> {
+            if (isSubmitting) return;
+            boolean ok = true;
+            Validation.Result r = Validation.validateEmail(email.value());
+            if (!r.valid) {
+                email.error(r.error);
+                ok = false;
+            } else if (!repository.isEmailRegistered(email.value())) {
+                email.error("No account found for this email on this device.");
+                ok = false;
+            } else {
+                email.clearError();
+            }
+            r = Validation.validatePassword(password.rawValue());
+            if (!r.valid) { password.error(r.error); ok = false; } else password.clearError();
+            r = Validation.validatePasswordConfirm(password.rawValue(), confirm.rawValue());
+            if (!r.valid) { confirm.error(r.error); ok = false; } else confirm.clearError();
+            if (!ok) {
+                Motion.shakeError(recover);
+                return;
+            }
+
+            UiFeedback.showConfirm(
+                    this,
+                    "Set a new password?",
+                    "Offline recovery cannot verify your identity. This sets a new password for the "
+                            + "local account " + email.value() + ". Its community data is preserved.",
+                    "Set password",
+                    getString(R.string.action_cancel),
+                    true,
+                    () -> {
+                        if (isSubmitting) return;
+                        isSubmitting = true;
+                        Motion.setButtonLoading(recover, "Updating credentials...",
+                                email.input, password.input, confirm.input);
+                        hideKeyboard();
+                        String recoveryError = repository.recoverAccountSetPassword(
+                                email.value(), password.rawValue());
+                        if (recoveryError != null) {
+                            isSubmitting = false;
+                            Motion.restoreButton(recover, "Set password and sign in",
+                                    email.input, password.input, confirm.input);
+                            UiFeedback.showError(this, "Recovery not possible", recoveryError, null);
+                            return;
+                        }
+                        PersistentRepository.LoginResult loginResult =
+                                repository.login(email.value(), password.rawValue());
+                        if (loginResult.status != PersistentRepository.LoginStatus.SUCCESS) {
+                            isSubmitting = false;
+                            Motion.restoreButton(recover, "Set password and sign in",
+                                    email.input, password.input, confirm.input);
+                            UiFeedback.showError(this, "Sign-in failed after recovery",
+                                    safe(loginResult.message, "Please try signing in again."), null);
+                            return;
+                        }
+                        Motion.completeButtonWithConfirmation(recover, "Password set",
+                                "Set password and sign in", () -> {
+                                    isSubmitting = false;
+                                    UiFeedback.showSuccess(
+                                            this,
+                                            "Account recovered",
+                                            "A new password was set and you are signed in.",
+                                            750L,
+                                            () -> {
+                                                if (repository.getCurrentUser().role != null) rootRoute("HOME");
+                                                else rootRoute("ROLE_PICKER");
+                                            });
+                                }, email.input, password.input, confirm.input);
+                    },
+                    null);
+        });
+        addDisclaimer(page);
+        attachAuthPage(page);
+    }
+
     private void showRolePicker() {
         LinearLayout page = authPage(true);
         addAuthHeader(page, getString(R.string.role_picker_title), getString(R.string.role_picker_subtitle));
-        TextView info = text("Your role determines which features you can access. You can change this later in settings.", 13, R.color.text_secondary, false);
+        // Least privilege: ordinary accounts may only choose Resident. Staff roles require a
+        // grant from a Management account; the one exception is the first-ever role selection on
+        // a device that has no staff account yet (device-owner bootstrap). The repository
+        // enforces the same rules, so bypassing this screen does not bypass the policy.
+        final boolean deviceSetup = repository.isDeviceOwnerSetupAvailable();
+        List<CommunityRole> options = new ArrayList<>();
+        if (deviceSetup) {
+            Collections.addAll(options, CommunityRole.values());
+        } else {
+            options.add(CommunityRole.RESIDENT);
+        }
+        String infoText = deviceSetup
+                ? "Device owner setup: no staff account exists on this device yet, so this account "
+                  + "may choose any role once. Afterwards, Management, Security and Maintenance "
+                  + "roles can only be granted by a Management account under Settings → Staff "
+                  + "access. These are on-device checks — not production security."
+                : "Your account signs in as a Resident. Management, Security and Maintenance roles "
+                  + "must be granted by a Management account (Settings → Staff access). These are "
+                  + "on-device checks — not production security.";
+        TextView info = text(infoText, 13, R.color.text_secondary, false);
+        info.setLineSpacing(dp(3), 1f);
         info.setPadding(dp(14), dp(12), dp(14), dp(12));
         info.setBackground(shape(color(R.color.primary_container), dp(14), color(R.color.primary_container), 0));
         addTopMargin(page, info, 18);
         List<View> roleCards = new ArrayList<>();
-        for (CommunityRole role : CommunityRole.values()) {
+        for (CommunityRole role : options) {
             MaterialCardView card = card();
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -821,7 +974,11 @@ public class MainActivity extends AppCompatActivity {
             page.addView(card, cardParams);
             roleCards.add(card);
             makeClickable(card, "Select " + role.getLabel(), () -> {
-                repository.setRole(role);
+                String roleError = repository.chooseOwnRole(role);
+                if (roleError != null) {
+                    UiFeedback.showError(this, "Role not available", roleError, null);
+                    return;
+                }
                 rootRoute("HOME");
                 Toast.makeText(this, role.getLabel() + " selected", Toast.LENGTH_SHORT).show();
             });
@@ -1146,6 +1303,7 @@ public class MainActivity extends AppCompatActivity {
         detailsColumn.setOrientation(LinearLayout.VERTICAL);
         detailsColumn.setPadding(dp(18), dp(16), dp(18), dp(16));
         addKeyValue(detailsColumn, "Email", safe(user.email, "Not set"));
+        addKeyValue(detailsColumn, "Phone", safe(user.phone, "Not set"));
         addKeyValue(detailsColumn, "Apartment", safe(user.apartmentUnit, "Not set"));
         addKeyValue(detailsColumn, "Current role", user.role.getLabel());
         details.addView(detailsColumn);
@@ -1193,6 +1351,10 @@ public class MainActivity extends AppCompatActivity {
         backendCard.addView(backendInfo);
         addTopMargin(content, backendCard, 10);
 
+        if (repository.getCurrentUser().role == CommunityRole.MANAGEMENT) {
+            addStaffAccessSection(content);
+        }
+
         addSectionHeader(content, "About", null, null, 24);
         MaterialCardView about = card();
         LinearLayout info = new LinearLayout(this);
@@ -1218,6 +1380,107 @@ public class MainActivity extends AppCompatActivity {
         logout.setTextColor(color(R.color.danger));
         addTopMargin(content, logout, 20);
         logout.setOnClickListener(v -> confirmLogout());
+    }
+
+    /**
+     * Management-only, device-local staff access panel: grants or revokes roles for the other
+     * accounts registered on this device. Enforcement happens in the repository/AccountStore
+     * (this panel is only reachable by a MANAGEMENT session, and the grant call re-checks it).
+     * Client-side, single-device control — NOT server-grade authorization.
+     */
+    private void addStaffAccessSection(LinearLayout content) {
+        addSectionHeader(content, "Staff access", null, null, 24);
+        MaterialCardView staffCard = card();
+        LinearLayout staffColumn = new LinearLayout(this);
+        staffColumn.setOrientation(LinearLayout.VERTICAL);
+        staffColumn.setPadding(dp(17), dp(16), dp(17), dp(16));
+        TextView staffNote = text("Grant or revoke roles for accounts registered on this device. "
+                + "Ordinary accounts sign in as Resident. On-device checks like these are not "
+                + "production authorization.", 12, R.color.text_secondary, false);
+        staffNote.setLineSpacing(dp(3), 1f);
+        staffColumn.addView(staffNote);
+
+        final CommunityRole[] roles = CommunityRole.values();
+        final String[] roleLabels = new String[roles.length];
+        for (int i = 0; i < roles.length; i++) roleLabels[i] = roles[i].getLabel();
+        String selfEmail = repository.getCurrentUser().email == null
+                ? "" : repository.getCurrentUser().email.trim();
+        int shown = 0;
+        for (AccountStore.Account account : repository.listAccounts()) {
+            if (account.email.equalsIgnoreCase(selfEmail)) continue;
+            shown++;
+            View divider = new View(this);
+            divider.setBackgroundColor(color(R.color.outline));
+            LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+            dividerParams.setMargins(0, dp(12), 0, dp(2));
+            staffColumn.addView(divider, dividerParams);
+
+            TextView accountTitle = text(safe(account.name, "Account") + " · " + account.email,
+                    14, R.color.text_primary, true);
+            addTopMargin(staffColumn, accountTitle, 10);
+            String meta = "Unit " + safe(account.unit, "—")
+                    + (account.hasValidPassword ? "" : " · no password stored (recovery needed)");
+            TextView accountMeta = text(meta, 11, R.color.text_muted, false);
+            addTopMargin(staffColumn, accountMeta, 2);
+
+            int selectedIndex = 0;
+            CommunityRole effectiveRole = account.role == null ? CommunityRole.RESIDENT : account.role;
+            for (int i = 0; i < roles.length; i++) {
+                if (roles[i] == effectiveRole) { selectedIndex = i; break; }
+            }
+            Spinner roleSpinner = addSpinner(staffColumn, "Role", roleLabels);
+            roleSpinner.setSelection(selectedIndex);
+            MaterialButton apply = smallButton("Apply role", true);
+            LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            applyParams.topMargin = dp(6);
+            staffColumn.addView(apply, applyParams);
+            apply.setOnClickListener(button -> {
+                if (isSubmitting) return;
+                int position = roleSpinner.getSelectedItemPosition();
+                final CommunityRole newRole = roles[position >= 0 && position < roles.length ? position : 0];
+                final CommunityRole currentRole = effectiveRole;
+                if (newRole == currentRole) {
+                    Toast.makeText(this, account.email + " already has the "
+                            + newRole.getLabel() + " role.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                final boolean grant = newRole != CommunityRole.RESIDENT;
+                String message = grant
+                        ? "Grant " + newRole.getLabel() + " access to " + account.email + "? The "
+                          + "change applies to this device's local account."
+                        : "Revoke staff access for " + account.email + "? Their role becomes Resident.";
+                UiFeedback.showConfirm(
+                        this,
+                        grant ? "Grant staff role?" : "Revoke staff role?",
+                        message,
+                        grant ? "Grant" : "Revoke",
+                        getString(R.string.action_cancel),
+                        !grant,
+                        () -> {
+                            String roleError = repository.grantRole(account.email, newRole);
+                            if (roleError != null) {
+                                UiFeedback.showError(this, "Role not changed", roleError, null);
+                            } else {
+                                UiFeedback.showSuccess(
+                                        this,
+                                        grant ? "Role granted" : "Role revoked",
+                                        account.email + " is now " + newRole.getLabel() + ".",
+                                        700L,
+                                        () -> renderQuietly());
+                            }
+                        },
+                        null);
+            });
+        }
+        if (shown == 0) {
+            TextView noneText = text("No other local accounts yet. Accounts created through "
+                    + "registration appear here.", 12, R.color.text_muted, false);
+            addTopMargin(staffColumn, noneText, 10);
+        }
+        staffCard.addView(staffColumn);
+        addTopMargin(content, staffCard, 10);
     }
 
     private void addPreferenceSwitch(LinearLayout parent, String title, String summary, String key) {
@@ -1644,7 +1907,9 @@ public class MainActivity extends AppCompatActivity {
         if (item == null) { addNotFound(content); return; }
         addPill(content, item.status);
         addTopMargin(content, text(item.name, 25, R.color.text_primary, true), 12);
-        addInfoCard(content, "VISIT DETAILS", "Host apartment " + item.hostUnit + "\nPurpose: " + item.purpose + "\nExpected: " + item.expectedArrival);
+        addInfoCard(content, "VISIT DETAILS", "Host apartment " + item.hostUnit + "\nPurpose: " + item.purpose
+                + "\nExpected: " + item.expectedArrival
+                + "\nPhone: " + (item.phone == null || item.phone.isEmpty() ? "Not provided" : item.phone));
         addSectionHeader(content, "Entry history", null, null, 18);
         for (String entry : item.history) addTimelineRow(content, entry);
         CommunityRole role = repository.getCurrentUser().role;
@@ -1987,7 +2252,8 @@ public class MainActivity extends AppCompatActivity {
                     name.input, unit.input, purpose.input, phone.input, chooseTime);
             hideKeyboard();
             try {
-                repository.addVisitor(name.value(), unit.value(), purpose.value(), formatArrival(arrival));
+                repository.addVisitor(name.value(), unit.value(), purpose.value(),
+                        formatArrival(arrival), phone.value());
                 Motion.completeButtonWithConfirmation(submit,
                         getString(R.string.feedback_visitor_registered),
                         "Save visitor",
@@ -2181,13 +2447,16 @@ public class MainActivity extends AppCompatActivity {
         Field name = createField("Full name", "Your name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, false);
         Field email = createField("Email address", "name@example.com", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, false);
         Field unit = createField("Apartment / unit", "For example, C-204", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS, false);
+        Field phone = createField("Phone (optional)", "Your phone number", InputType.TYPE_CLASS_PHONE, false);
         name.input.setText(user.name);
         email.input.setText(user.email);
         unit.input.setText(user.apartmentUnit);
+        phone.input.setText(safe(user.phone, ""));
         addField(content, name);
         addField(content, email);
         addField(content, unit);
-        for (Field f : new Field[]{name, email, unit}) setupClearErrorOnType(f);
+        addField(content, phone);
+        for (Field f : new Field[]{name, email, unit, phone}) setupClearErrorOnType(f);
 
         MaterialButton save = fullButton("Save profile", true);
         addTopMargin(content, save, 14);
@@ -2201,14 +2470,31 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { email.error(r.error); valid = false; } else email.clearError();
             r = Validation.validateUnit(unit.value());
             if (!r.valid) { unit.error(r.error); valid = false; } else unit.clearError();
+            r = Validation.validatePhone(phone.value(), false);
+            if (!r.valid) { phone.error(r.error); valid = false; } else phone.clearError();
             if (!valid) {
                 Motion.shakeError(save);
                 return;
             }
             isSubmitting = true;
-            Motion.setButtonLoading(save, "Saving...", name.input, email.input, unit.input);
+            Motion.setButtonLoading(save, "Saving...", name.input, email.input, unit.input, phone.input);
             hideKeyboard();
-            repository.updateProfile(name.value(), email.value(), unit.value());
+            String profileError = repository.updateProfile(
+                    name.value(), email.value(), unit.value(), phone.value());
+            if (profileError != null) {
+                isSubmitting = false;
+                Motion.restoreButton(save, "Save profile",
+                        name.input, email.input, unit.input, phone.input);
+                boolean emailConflict = repository.isEmailRegistered(email.value())
+                        && !email.value().equalsIgnoreCase(repository.getCurrentUser().email);
+                if (emailConflict) {
+                    email.error(profileError);
+                    Motion.shakeError(email.layout);
+                } else {
+                    UiFeedback.showError(this, "Could not save profile", profileError, null);
+                }
+                return;
+            }
             Motion.completeButtonWithConfirmation(save,
                     getString(R.string.feedback_profile_updated),
                     "Save profile",
@@ -2222,7 +2508,7 @@ public class MainActivity extends AppCompatActivity {
                                 () -> replaceCurrent("PROFILE", "")
                         );
                     },
-                    name.input, email.input, unit.input);
+                    name.input, email.input, unit.input, phone.input);
         });
     }
 
