@@ -2338,7 +2338,53 @@ public class MainActivity extends AppCompatActivity {
         Field description = createField("Description", "What should residents know?", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, true);
         description.input.setMinLines(3);
         Field location = createField("Location", "Community room, garden…", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
-        Field dateTime = createField("Date and time", "For example, Sat, Oct 24 · 10:00 AM", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        Field dateTime = createField("Date and time", "Choose a future date and time", InputType.TYPE_CLASS_TEXT, false);
+        dateTime.input.setFocusable(false);
+        dateTime.input.setClickable(true);
+        Calendar initialEventTime = Calendar.getInstance();
+        initialEventTime.add(Calendar.DAY_OF_YEAR, 1);
+        initialEventTime.set(Calendar.HOUR_OF_DAY, 10);
+        initialEventTime.set(Calendar.MINUTE, 0);
+        initialEventTime.set(Calendar.SECOND, 0);
+        initialEventTime.set(Calendar.MILLISECOND, 0);
+        final Calendar[] selectedEventTime = new Calendar[]{(Calendar) initialEventTime.clone()};
+        dateTime.input.setText(new java.text.SimpleDateFormat("EEE, MMM d · hh:mm a", Locale.getDefault()).format(initialEventTime.getTime()));
+        View.OnClickListener chooseEventDateTime = ignored -> {
+            Calendar now = Calendar.getInstance();
+            Calendar current = selectedEventTime[0] == null ? (Calendar) now.clone() : (Calendar) selectedEventTime[0].clone();
+            DatePickerDialog datePicker = new DatePickerDialog(this, (picker, year, month, day) -> {
+                Calendar chosenDate = Calendar.getInstance();
+                chosenDate.set(year, month, day, 10, 0, 0);
+                chosenDate.set(Calendar.MILLISECOND, 0);
+                Calendar today = Calendar.getInstance();
+                if (chosenDate.get(Calendar.YEAR) == today.get(Calendar.YEAR)
+                        && chosenDate.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)) {
+                    chosenDate.set(Calendar.HOUR_OF_DAY, today.get(Calendar.HOUR_OF_DAY));
+                    chosenDate.set(Calendar.MINUTE, today.get(Calendar.MINUTE));
+                }
+                TimePickerDialog timePicker = new TimePickerDialog(this, (timeDialog, hour, minute) -> {
+                    chosenDate.set(Calendar.HOUR_OF_DAY, hour);
+                    chosenDate.set(Calendar.MINUTE, minute);
+                    chosenDate.set(Calendar.SECOND, 0);
+                    chosenDate.set(Calendar.MILLISECOND, 0);
+                    if (!chosenDate.after(Calendar.getInstance())) {
+                        dateTime.error("Choose a date and time in the future.");
+                        return;
+                    }
+                    selectedEventTime[0] = (Calendar) chosenDate.clone();
+                    dateTime.clearError();
+                    dateTime.input.setText(new java.text.SimpleDateFormat("EEE, MMM d · hh:mm a", Locale.getDefault()).format(chosenDate.getTime()));
+                }, chosenDate.get(Calendar.HOUR_OF_DAY), chosenDate.get(Calendar.MINUTE), false);
+                timePicker.show();
+            }, current.get(Calendar.YEAR), current.get(Calendar.MONTH), current.get(Calendar.DAY_OF_MONTH));
+            datePicker.getDatePicker().setMinDate(System.currentTimeMillis());
+            datePicker.show();
+        };
+        dateTime.input.setOnClickListener(chooseEventDateTime);
+        dateTime.layout.setEndIconMode(TextInputLayout.END_ICON_CUSTOM);
+        dateTime.layout.setEndIconDrawable(R.drawable.ic_calendar);
+        dateTime.layout.setEndIconContentDescription("Choose event date and time");
+        dateTime.layout.setEndIconOnClickListener(chooseEventDateTime);
         addField(content, title);
         addField(content, description);
         addField(content, location);
@@ -2357,8 +2403,12 @@ public class MainActivity extends AppCompatActivity {
             if (!r.valid) { description.error(r.error); valid = false; } else description.clearError();
             r = Validation.validateTitle(location.value(), "Location", 2, 100);
             if (!r.valid) { location.error(r.error); valid = false; } else location.clearError();
-            r = Validation.validateTitle(dateTime.value(), "Date and time", 3, 100);
-            if (!r.valid) { dateTime.error(r.error); valid = false; } else dateTime.clearError();
+            if (selectedEventTime[0] == null || !selectedEventTime[0].after(Calendar.getInstance())) {
+                dateTime.error("Choose a date and time in the future.");
+                valid = false;
+            } else {
+                dateTime.clearError();
+            }
             if (!valid) {
                 Motion.shakeError(create);
                 return;
