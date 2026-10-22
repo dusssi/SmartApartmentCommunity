@@ -75,7 +75,7 @@ List/create form with category, description, status, detail and feedback; search
 Register visitor name, host unit, purpose and expected date/time; list/detail/history/status; provide Security overview and demo approval/entry transitions. Valid entries appear locally. Do not imply remote approval or gate-system integration.
 
 ### FR-09 — Community events
-List/detail with date, time, location and description; upcoming/past presentation; local RSVP/participation action with feedback. Handle empty lists.
+List/detail with date, time, location and description; upcoming/past presentation; local RSVP/participation action with feedback. Event creation must use native date/time pickers, prevent past date-times and handle empty lists. Newly created events must have a future timestamp.
 
 ### FR-10 — Emergency contacts
 Clearly labelled public or sample entries; use Android `ACTION_DIAL` only for a valid number and no unnecessary sensitive permission. Invalid/missing numbers do not trigger broken actions; dialing is user initiated, not claimed as completed.
@@ -145,3 +145,14 @@ Frontend demonstration acceptance: build/APK verified in a configured environmen
 ## 12. Documentation deliverables
 
 Repository documentation should include README overview/features/stack/prerequisites/build/install/demo/limitations/roadmap; architecture and navigation/data boundaries; module behaviors and limitations; actual build/manual test state; and this PRD.
+
+
+## 13. Implementation status update — PRD P1 slice
+
+This status records the scope of the current implementation branch and does not mark the entire PRD complete.
+
+- **Implemented in this change:** event creation uses Android date and time pickers; dates before today are unavailable in the date picker; a selected date-time must be in the future before an event can be saved.
+- **Documentation aligned:** README, architecture and feature behavior now describe the local SharedPreferences/JSON store, PBKDF2 local account handling, offline-recovery limitation, backend placeholders and event date/time behavior.
+- **Still pending:** profile photo picker and app-private storage; full edit/delete CRUD across all relevant modules; correct reconciliation of legacy seeded event `upcoming` flags; automated Android UI/instrumentation coverage; full device-level manual test matrix.
+- **Database/backend:** Room migration and Spring Boot + MySQL remain separate future-phase decisions. Neither is implemented by this change.
+- **Verification:** user-reported earlier local build and 44 JVM tests passed on the base security branch. The current branch's event-picker change still requires a fresh Gradle build, unit-test run and device verification before merge.
