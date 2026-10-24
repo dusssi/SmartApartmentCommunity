@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -34,7 +34,37 @@ jobs:
       - name: Validate XML resources
         run: python3 scripts/verify_resources.py
       - name: Run JVM tests and assemble debug APK
-        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest assembleDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace --console=plain testDebugUnitTest assembleDebug 2>&1 | tee "$RUNNER_TEMP/android-verification.log"
+      - name: Surface Android failure diagnostics
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path(__import__('os').environ['RUNNER_TEMP']) / 'android-verification.log'
+          lines = path.read_text(errors='replace').splitlines() if path.exists() else []
+          needles = ('error:', 'FAILURE:', 'What went wrong:', 'Execution failed', 'Caused by:', 'tests completed')
+          selected = [line for line in lines if any(word in line for word in needles)][-60:]
+          if not selected:
+              selected = lines[-60:]
+          for line in selected:
+              escaped = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error::{escaped}')
+          summary = Path(__import__('os').environ['GITHUB_STEP_SUMMARY'])
+          with summary.open('a') as output:
+              output.write('\n### Android verification diagnostics\n\n```text\n')
+              output.write('\n'.join(lines[-160:]))
+              output.write('\n```\n')
+          PY
+      - name: Upload Android verification log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-verification-log
+          path: ${{ runner.temp }}/android-verification.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
