@@ -1,8 +1,8 @@
 package com.apartment.community.repository;
 
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.SharedPreferences;
-import android.test.mock.MockContext;
 
 import com.apartment.community.model.CommunityRole;
 import com.apartment.community.model.Complaint;
@@ -250,8 +250,9 @@ public class PersistentRepositoryIntegrationTest {
         assertFalse(second.equals(third));
     }
 
-    private static final class FakeContext extends MockContext {
+    private static final class FakeContext extends ContextWrapper {
         private final Map<String, FakePreferences> stores = new HashMap<>();
+        FakeContext() { super(null); }
         @Override public Context getApplicationContext() { return this; }
         @Override public SharedPreferences getSharedPreferences(String name, int mode) {
             return preferences(name);
