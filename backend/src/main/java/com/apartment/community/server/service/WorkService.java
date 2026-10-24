@@ -14,6 +14,7 @@ import com.apartment.community.server.repository.WorkLogRepository;
 import com.apartment.community.server.repository.WorkOrderRepository;
 import com.apartment.community.server.web.ApiException;
 import com.apartment.community.server.web.Versions;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -236,8 +237,11 @@ public class WorkService {
     }
 
     private Complaint complaint(WorkOrder work) {
-        return complaints.findByIdAndCommunityId(work.complaint.getId(), work.community.getId())
+        Complaint complaint = complaints.findByIdAndCommunityId(work.complaint.getId(), work.community.getId())
                 .orElseThrow(ApiException::notFound);
+        // A lazy association with the same ID may already occupy this persistence context.
+        // Mutate the initialized managed entity, never the proxy's uninitialized public fields.
+        return (Complaint) Hibernate.unproxy(complaint);
     }
 
     private static String trimToNull(String value) {
