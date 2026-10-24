@@ -64,6 +64,16 @@ class AuthIntegrationTest extends AbstractApiIntegrationTest {
     }
 
     @Test
+    void repeatedRefreshFailuresAreRateLimitedWithoutLeakingTokenValidity() throws Exception {
+        Map<String, String> request = Map.of("refreshToken", "invalid-refresh-token");
+        for (int attempt = 0; attempt < 10; attempt++) {
+            post("/api/v1/auth/refresh", null, request, 401);
+        }
+        JsonNode limited = post("/api/v1/auth/refresh", null, request, 429);
+        assertEquals("RATE_LIMITED", limited.get("code").asText());
+    }
+
+    @Test
     void flywayCreatesEveryRequiredTableAndJpaValidatesIt() throws Exception {
         assertEquals(1, flyway.info().applied().length);
         Set<String> tables = new HashSet<>();

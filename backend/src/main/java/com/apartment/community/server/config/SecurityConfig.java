@@ -1,6 +1,7 @@
 package com.apartment.community.server.config;
 
 import com.apartment.community.server.security.JwtAuthenticationFilter;
+import com.apartment.community.server.security.RateLimitFilter;
 import com.apartment.community.server.security.SecurityErrorWriter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
@@ -24,7 +25,7 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter,
-                                            SecurityErrorWriter errors) throws Exception {
+                                            RateLimitFilter rateLimitFilter, SecurityErrorWriter errors) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
@@ -45,6 +46,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(rateLimitFilter, JwtAuthenticationFilter.class)
                 .build();
     }
 }

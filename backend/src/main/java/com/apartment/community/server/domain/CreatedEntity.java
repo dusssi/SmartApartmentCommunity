@@ -4,12 +4,13 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Id;
 import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.PrePersist;
+import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.UUID;
 
 @MappedSuperclass
-public abstract class CreatedEntity {
+public abstract class CreatedEntity implements Persistable<String> {
     @Id
     @Column(length = 36, nullable = false, updatable = false)
     public String id = UUID.randomUUID().toString();
@@ -17,7 +18,8 @@ public abstract class CreatedEntity {
     @Column(nullable = false, updatable = false, columnDefinition = "TIMESTAMP(6)")
     public Instant createdAt;
 
-    public String getId() { return id; }
+    @Override public String getId() { return id; }
+    @Override public boolean isNew() { return createdAt == null; }
     public Instant getCreatedAt() { return createdAt; }
 
     @PrePersist
