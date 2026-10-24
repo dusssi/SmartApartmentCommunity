@@ -26,6 +26,7 @@ final class IssueOperationsJson {
     }
 
     static IssueOperationsState migrateLegacy(String legacyJson) {
+        try {
         IssueOperationsState state = empty();
         if (legacyJson == null || legacyJson.trim().isEmpty()) return state;
         JSONArray array = new JSONArray(legacyJson);
@@ -39,15 +40,19 @@ final class IssueOperationsJson {
                 }
                 state.complaints.add(issue);
                 state.importedEvent(issue);
-            } catch (RuntimeException error) {
+            } catch (Exception error) {
                 state.migrationWarnings.add("Legacy complaint at index " + i
                         + " was not imported: " + safeMessage(error));
             }
         }
         return state;
+        } catch (org.json.JSONException error) {
+            throw new IllegalArgumentException("Malformed legacy complaint JSON.", error);
+        }
     }
 
     static String write(IssueOperationsState state) {
+        try {
         JSONObject root = new JSONObject();
         root.put("schemaVersion", IssueOperationsState.SCHEMA_VERSION);
         root.put("nextId", state.nextId);
@@ -144,9 +149,13 @@ final class IssueOperationsJson {
         }
         root.put("activityEvents", activities);
         return root.toString();
+        } catch (org.json.JSONException error) {
+            throw new IllegalStateException("Issue operations could not be serialized.", error);
+        }
     }
 
     static IssueOperationsState parse(String json) {
+        try {
         if (json == null || json.trim().isEmpty()) return empty();
         JSONObject root = new JSONObject(json);
         int version = root.getInt("schemaVersion");
@@ -245,9 +254,12 @@ final class IssueOperationsJson {
         }
         validate(state);
         return state;
+        } catch (org.json.JSONException error) {
+            throw new IllegalArgumentException("Malformed issue operations JSON.", error);
+        }
     }
 
-    private static JSONObject writeComplaint(Complaint value) {
+    private static JSONObject writeComplaint(Complaint value) throws org.json.JSONException {
         return new JSONObject().put("id", value.id).put("title", value.title)
                 .put("description", value.description).put("category", value.category)
                 .put("priority", value.priority).put("apartmentUnit", value.apartmentUnit)
@@ -259,7 +271,7 @@ final class IssueOperationsJson {
                 .put("version", value.version).put("history", strings(value.history));
     }
 
-    private static Complaint readComplaint(JSONObject o) {
+    private static Complaint readComplaint(JSONObject o) throws org.json.JSONException {
         String status = o.optString("status", "Open");
         String createdAt = o.getString("createdAt");
         Complaint.OutcomeStatus defaultOutcome = "Resolved".equals(status)
@@ -423,7 +435,7 @@ final class IssueOperationsJson {
         if (!condition) throw new IllegalArgumentException(message);
     }
 
-    private static String safeMessage(RuntimeException error) {
+    private static String safeMessage(Exception error) {
         String message = error.getMessage();
         return message == null || message.trim().isEmpty() ? error.getClass().getSimpleName() : message;
     }
