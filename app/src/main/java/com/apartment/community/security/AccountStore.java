@@ -188,7 +188,7 @@ public final class AccountStore {
     }
 
     /** Adds a stable local identity once; failed operations still return the original JSON. */
-    private static boolean ensureAccountId(JSONObject record) {
+    private static boolean ensureAccountId(JSONObject record) throws org.json.JSONException {
         if (!record.optString("accountId", "").trim().isEmpty()) return false;
         record.put("accountId", newAccountId());
         return true;
