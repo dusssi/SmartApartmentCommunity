@@ -1,0 +1,33 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:smart_community;MODE=MySQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    clean-disabled: false
+  test:
+    database:
+      replace: none
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  jwt:
+    issuer: smart-community-api-test
+    access-token-ttl: 15m
+    refresh-token-ttl: 2h
+  auth:
+    allow-registration: true

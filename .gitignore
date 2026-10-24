@@ -6,3 +6,10 @@ local.properties
 *.iml
 .DS_Store
 Thumbs.db
+
+# Local backend credentials and runtime artifacts
+.env
+.env.*
+!.env.example
+backend/build/
+backend/.gradle/
