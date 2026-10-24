@@ -40,7 +40,7 @@ This table is based on the repository docs/source reviewed on 2026-10-22. It is 
 | UI | Existing blue/teal Material-based light UI and motion helpers | Apply futuristic AI visual system incrementally: dark/indigo surfaces only where readable, restrained glow, clear hierarchy, motion respects system settings and accessibility |
 
 ### Existing changes to keep in view
-- Draft PR #6: https://github.com/dusssi/SmartApartmentCommunity/pull/6 — event date/time picker and documentation alignment. Its new code still requires a fresh build, unit tests and device validation before merge.
+- PR #6: https://github.com/dusssi/SmartApartmentCommunity/pull/6 — **merged 2026-10-24** with the event date/time picker and documentation alignment. The merged code still requires fresh configured-environment build/unit-test evidence and physical-device validation; merge status is not a device-test result.
 - Keep unrelated local style patch/stash safe. Do not force-push, overwrite, or merge open work without reviewing its diff and test status.
 
 ## 3. Competitor comparison: MyGate
