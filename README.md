@@ -14,6 +14,7 @@ A native Android application for organizing apartment-community workflows. The p
 - Profile editing (name, email, apartment/unit and optional phone), local settings, loading feedback and confirmation dialogs.
 - PBKDF2-based password hashing, per-account salt, constant-time verification, email uniqueness and account-integrity handling.
 - SharedPreferences + versioned JSON local persistence, raw legacy-complaint backup, and JVM tests for security, models, workflow, migration, metrics, and repository integration.
+- A standalone Spring Boot REST module with Flyway/MySQL migrations, session rotation, community-scoped authorization, complaint/work/evidence-metadata/review APIs, activity and administrator audit/access endpoints. See the implementation status for its current verification result; it is not connected to Android yet.
 
 ## Important boundaries
 
@@ -21,7 +22,7 @@ A native Android application for organizing apartment-community workflows. The p
 
 Evidence entries in the operations workflow are **metadata references only**; no evidence file is uploaded or securely stored. Operational visibility rules are local demo rules, not server authorization.
 
-The app does **not** currently include a SQL database, Room, a working Spring Boot API, MySQL, push-notification delivery, profile-photo storage, a document download service, payments, QR visitor verification, AI complaint classification or IoT integration. Those are future work unless separately implemented and tested. `ApiConfig` and `ApiModels` are placeholders, not working network integration.
+The Android app does **not** currently include Room, API synchronization, push-notification delivery, profile-photo storage, a document download service, payments, QR visitor verification, AI complaint classification or IoT integration. `ApiConfig` and `ApiModels` remain placeholders, not working network integration. The standalone `backend/` module has real Spring Boot/Flyway code and test databases, but no production deployment, production data, or production-readiness claim.
 
 ## Technology
 
@@ -30,7 +31,8 @@ The app does **not** currently include a SQL database, Room, a working Spring Bo
 - compile/target SDK 35, min SDK 24
 - AndroidX AppCompat, Material Components, RecyclerView
 - SharedPreferences + Android `org.json` for local persistence
-- JUnit 4 for JVM unit tests
+- JUnit 4 for Android JVM unit tests
+- Standalone Java 17 / Spring Boot 3 REST API, Spring Data JPA, Flyway, MySQL 8.4 and H2/MySQL integration-test profiles
 
 ## Build
 
@@ -49,6 +51,15 @@ macOS/Linux:
 ```
 
 Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
+
+Backend API (from `backend/`, with environment-only DB/JWT configuration):
+
+```bash
+../gradlew --no-daemon test
+../gradlew --no-daemon bootRun
+```
+
+See [backend configuration and security boundaries](backend/README.md) and [API v1 behavior](docs/API_V1.md).
 
 ## Install on a connected Android device
 
