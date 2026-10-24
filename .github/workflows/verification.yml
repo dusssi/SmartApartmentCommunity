@@ -6,6 +6,7 @@ on:
       - ".github/workflows/verification.yml"
       - "app/**"
       - "backend/**"
+      - "scripts/**"
       - "gradle/**"
       - "gradlew"
       - "build.gradle"
