@@ -9,7 +9,7 @@ emitted = 0
 
 def annotate(text):
     global emitted
-    if emitted >= 240 or not text.strip():
+    if emitted >= 10 or not text.strip():
         return
     escaped = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     print(f"::error::{escaped}")
