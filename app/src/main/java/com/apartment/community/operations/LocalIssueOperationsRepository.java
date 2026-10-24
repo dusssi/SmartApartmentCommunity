@@ -257,7 +257,7 @@ public final class LocalIssueOperationsRepository implements IssueOperationsRepo
             candidate.event(actor, ActivityEvent.Type.EVIDENCE_ADDED, log.issueId, "",
                     workOrder.id, workOrder.assetId, "Evidence metadata added",
                     evidence.displayName + " · " + evidence.mediaType
-                            + " · Metadata reference only; no binary file uploaded.", at);
+                            + " · Metadata reference only; no binary file uploaded.", at, evidence.id);
             return OperationResult.success(evidence);
         });
     }
@@ -450,7 +450,8 @@ public final class LocalIssueOperationsRepository implements IssueOperationsRepo
                 if (value.previousIssueId.equals(issue.id) || value.newIssueId.equals(issue.id)) recurrences.add(value);
             }
             for (ActivityEvent value : state.activities) {
-                if (value.issueId.equals(issue.id) || value.relatedIssueId.equals(issue.id)) timeline.add(value);
+                if ((value.issueId.equals(issue.id) || value.relatedIssueId.equals(issue.id))
+                        && canReadEvent(actor, value)) timeline.add(value);
             }
             timeline.sort(Comparator.comparingLong(event -> event.sequence));
             return OperationResult.success(new IssueDetails(issue.copy(), workOrders, logs,
@@ -521,15 +522,18 @@ public final class LocalIssueOperationsRepository implements IssueOperationsRepo
             List<ActivityEvent> events = new ArrayList<>();
             Set<String> issueIds = new HashSet<>();
             for (Complaint issue : state.complaints) {
-                if (asset.id.equals(issue.assetId) && issue.communityId.equals(actor.communityId)) {
+                if (asset.id.equals(issue.assetId) && issue.communityId.equals(actor.communityId)
+                        && canReadIssue(actor, issue, state)) {
                     issues.add(issue.copy());
                     issueIds.add(issue.id);
                 }
             }
             for (WorkLog log : state.workLogs) if (issueIds.contains(log.issueId)) logs.add(log);
             for (ActivityEvent event : state.activities) {
-                if (asset.id.equals(event.assetId) || issueIds.contains(event.issueId)
-                        || issueIds.contains(event.relatedIssueId)) events.add(event);
+                if ((asset.id.equals(event.assetId) || issueIds.contains(event.issueId)
+                        || issueIds.contains(event.relatedIssueId)) && canReadEvent(actor, event)) {
+                    events.add(event);
+                }
             }
             events.sort(Comparator.comparingLong(event -> event.sequence));
             return OperationResult.success(new AssetHistory(asset, issues, logs, events));
@@ -633,9 +637,19 @@ public final class LocalIssueOperationsRepository implements IssueOperationsRepo
         if (!event.communityId.equals(actor.communityId)) return false;
         if (!event.issueId.isEmpty()) {
             Complaint issue = state.issue(event.issueId);
-            return issue != null && canReadIssue(actor, issue, state);
+            if (issue == null || !canReadIssue(actor, issue, state)) return false;
+        } else if (actor.role != CommunityRole.MANAGEMENT && actor.role != CommunityRole.MAINTENANCE) {
+            return false;
         }
-        return actor.role == CommunityRole.MANAGEMENT || actor.role == CommunityRole.MAINTENANCE;
+        if (actor.role == CommunityRole.RESIDENT && event.type == ActivityEvent.Type.EVIDENCE_ADDED) {
+            EvidenceReference evidence = state.evidence(event.evidenceId);
+            // Events written before evidenceId was introduced are hidden from residents rather
+            // than risking disclosure of a staff-only display name. Staff retain full history.
+            if (evidence == null || evidence.accessScope == EvidenceReference.AccessScope.STAFF_ONLY) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Complaint requireIssue(IssueOperationsState candidate, Actor actor, String issueId) {
@@ -666,9 +680,7 @@ public final class LocalIssueOperationsRepository implements IssueOperationsRepo
 
     private void requireResidentOwnerOrManagement(Actor actor, Complaint issue) {
         if (actor.role == CommunityRole.MANAGEMENT) return;
-        if (actor.role != CommunityRole.RESIDENT
-                || (!actor.id.equals(issue.reporterId)
-                && !Complaint.LEGACY_REPORTER_ID.equals(issue.reporterId))) {
+        if (actor.role != CommunityRole.RESIDENT || !actor.id.equals(issue.reporterId)) {
             throw failure(OperationResult.Error.NOT_AUTHORIZED,
                     "Only the reporting resident or local Management can perform this action.");
         }

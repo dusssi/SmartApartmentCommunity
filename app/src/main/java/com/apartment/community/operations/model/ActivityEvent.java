@@ -34,11 +34,21 @@ public final class ActivityEvent {
     public final String title;
     public final String detail;
     public final long occurredAtEpochMs;
+    /** Optional evidence record linkage; empty only on legacy events imported before this field. */
+    public final String evidenceId;
 
     public ActivityEvent(String id, long sequence, String communityId, String issueId,
                          String relatedIssueId, String workOrderId, String assetId,
                          String actorId, CommunityRole actorRole, Type type, String title,
                          String detail, long occurredAtEpochMs) {
+        this(id, sequence, communityId, issueId, relatedIssueId, workOrderId, assetId, actorId,
+                actorRole, type, title, detail, occurredAtEpochMs, "");
+    }
+
+    public ActivityEvent(String id, long sequence, String communityId, String issueId,
+                         String relatedIssueId, String workOrderId, String assetId,
+                         String actorId, CommunityRole actorRole, Type type, String title,
+                         String detail, long occurredAtEpochMs, String evidenceId) {
         this.id = DomainValidation.id(id, "Activity ID");
         this.sequence = DomainValidation.positive(sequence, "Activity sequence");
         this.communityId = DomainValidation.id(communityId, "Community ID");
@@ -55,5 +65,6 @@ public final class ActivityEvent {
         this.title = DomainValidation.required(title, "Activity title", 2, 180);
         this.detail = DomainValidation.optional(detail, "Activity detail", 3000);
         this.occurredAtEpochMs = DomainValidation.instant(occurredAtEpochMs, "Activity time", true);
+        this.evidenceId = DomainValidation.optional(evidenceId, "Evidence ID", 128);
     }
 }

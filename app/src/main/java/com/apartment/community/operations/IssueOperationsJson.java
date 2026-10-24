@@ -139,7 +139,8 @@ final class IssueOperationsJson {
                     .put("assetId", value.assetId).put("actorId", value.actorId)
                     .put("actorRole", value.actorRole.name()).put("type", value.type.name())
                     .put("title", value.title).put("detail", value.detail)
-                    .put("occurredAtEpochMs", value.occurredAtEpochMs));
+                    .put("occurredAtEpochMs", value.occurredAtEpochMs)
+                    .put("evidenceId", value.evidenceId));
         }
         root.put("activityEvents", activities);
         return root.toString();
@@ -234,7 +235,8 @@ final class IssueOperationsJson {
                     o.optString("assetId", ""), o.getString("actorId"),
                     enumValue(CommunityRole.class, o.getString("actorRole")),
                     enumValue(ActivityEvent.Type.class, o.getString("type")), o.getString("title"),
-                    o.optString("detail", ""), o.optLong("occurredAtEpochMs", 0L));
+                    o.optString("detail", ""), o.optLong("occurredAtEpochMs", 0L),
+                    o.optString("evidenceId", ""));
             maximumSequence = Math.max(maximumSequence, value.sequence);
             state.activities.add(value);
         }
@@ -383,6 +385,13 @@ final class IssueOperationsJson {
             if (!value.relatedIssueId.isEmpty()) {
                 Complaint issue = state.issue(value.relatedIssueId);
                 require(issue != null && issue.communityId.equals(value.communityId), "Activity references an invalid related issue.");
+            }
+            if (!value.evidenceId.isEmpty()) {
+                EvidenceReference evidence = state.evidence(value.evidenceId);
+                require(value.type == ActivityEvent.Type.EVIDENCE_ADDED && evidence != null
+                                && evidence.communityId.equals(value.communityId)
+                                && evidence.issueId.equals(value.issueId),
+                        "Activity references invalid evidence metadata.");
             }
             if (value.type != ActivityEvent.Type.ISSUE_IMPORTED) {
                 require(value.occurredAtEpochMs > 0, "Only imported events may have an unknown instant.");

@@ -167,6 +167,29 @@ public class LocalIssueOperationsRepositoryTest {
     }
 
     @Test
+    public void assetHistory_maintenanceSeesOnlyAssignedIssueRecords() {
+        Asset shared = createAsset(repository, "Shared pump");
+        Complaint mine = createIssue(repository, resident, "Assigned pump repair");
+        WorkOrder assigned = success(repository.assignIssue(management, mine.id, maintenance.id, shared.id));
+        addWorkLog(repository, assigned, "Replaced the assigned pump coupling.");
+        Complaint other = createIssue(repository, otherResident, "Other technician pump repair");
+        success(repository.assignIssue(management, other.id, otherMaintenance.id, shared.id));
+
+        AssetHistory history = success(repository.assetHistory(maintenance, shared.id));
+        assertEquals(1, history.issues.size());
+        assertEquals(mine.id, history.issues.get(0).id);
+        assertEquals(1, history.workLogs.size());
+        for (ActivityEvent event : history.events) {
+            assertNotEquals(other.id, event.issueId);
+            assertNotEquals(other.id, event.relatedIssueId);
+        }
+        AssetHistory otherHistory = success(repository.assetHistory(otherMaintenance, shared.id));
+        assertEquals(1, otherHistory.issues.size());
+        assertEquals(other.id, otherHistory.issues.get(0).id);
+        assertEquals(0, otherHistory.workLogs.size());
+    }
+
+    @Test
     public void proposal_requiresAWorkPerformedLog() {
         Complaint issue = createIssue(repository, resident, "Resolution requires evidence");
         WorkOrder assigned = assign(repository, issue);
@@ -313,10 +336,29 @@ public class LocalIssueOperationsRepositoryTest {
                 "Technician photo", "Paper logbook reference 14", "image/jpeg", 2048,
                 EvidenceReference.AccessScope.STAFF_ONLY, 0, "Control panel", 0));
         assertEquals(EvidenceReference.StorageState.METADATA_ONLY, evidence.storageState);
-        assertEquals(0, details(repository, resident, issue.id).evidence.size());
+        IssueDetails residentDetails = details(repository, resident, issue.id);
+        assertEquals(0, residentDetails.evidence.size());
+        assertFalse("staff-only evidence events must not leak their display name",
+                hasEvent(residentDetails.timeline, ActivityEvent.Type.EVIDENCE_ADDED));
+        for (ActivityEvent event : success(repository.activityFeed(resident, "", null, 0, 100))) {
+            assertFalse(event.detail.contains("Technician photo"));
+        }
         IssueDetails staffDetails = details(repository, maintenance, issue.id);
         assertEquals(1, staffDetails.evidence.size());
-        assertTrue(staffDetails.timeline.get(staffDetails.timeline.size() - 1).detail.contains("no binary file uploaded"));
+        ActivityEvent staffEvent = staffDetails.timeline.get(staffDetails.timeline.size() - 1);
+        assertEquals(evidence.id, staffEvent.evidenceId);
+        assertTrue(staffEvent.detail.contains("no binary file uploaded"));
+
+        success(repository.addEvidence(maintenance, log.id, "Resident-visible logbook",
+                "Shared logbook page 18", "application/pdf", 4096,
+                EvidenceReference.AccessScope.ISSUE_PARTICIPANTS, 18, "Repair", 0));
+        IssueDetails participantDetails = details(repository, resident, issue.id);
+        assertEquals(1, participantDetails.evidence.size());
+        int visibleEvidenceEvents = 0;
+        for (ActivityEvent event : participantDetails.timeline) {
+            if (event.type == ActivityEvent.Type.EVIDENCE_ADDED) visibleEvidenceEvents++;
+        }
+        assertEquals(1, visibleEvidenceEvents);
     }
 
     @Test
@@ -408,6 +450,27 @@ public class LocalIssueOperationsRepositoryTest {
         assertEquals(snapshot, reloaded.snapshotJson());
         assertEquals(writes, storage.writes);
         assertEquals(1, details(reloaded, legacyResident, issue.id).timeline.size());
+    }
+
+    @Test
+    public void legacyUnownedIssue_reopenRequiresManagementAndDeniedWriteIsRolledBack() throws Exception {
+        storage = new MemoryStorage();
+        JSONObject legacy = new JSONObject().put("id", "C-legacy").put("title", "Legacy resolved issue")
+                .put("description", "Ownership is unknown in the old display-only record.")
+                .put("category", "Other").put("priority", "Normal").put("apartmentUnit", "A-1")
+                .put("createdAt", "Yesterday").put("updatedAt", "Today").put("status", "Resolved")
+                .put("history", new JSONArray().put("Today · Resolved"));
+        LocalIssueOperationsRepository migrated = load(storage,
+                new JSONArray().put(legacy).toString());
+        Actor resident = new Actor("resident-1", Complaint.LEGACY_COMMUNITY_ID, CommunityRole.RESIDENT);
+        Actor management = new Actor("manager-1", Complaint.LEGACY_COMMUNITY_ID, CommunityRole.MANAGEMENT);
+        String before = migrated.snapshotJson();
+        assertFailure(migrated.reopenIssue(resident, "C-legacy", "Not my record to reopen"),
+                OperationResult.Error.NOT_AUTHORIZED);
+        assertEquals(before, migrated.snapshotJson());
+        Complaint reopened = success(migrated.reopenIssue(management, "C-legacy",
+                "Management reviewed the unowned legacy record."));
+        assertEquals(Complaint.OutcomeStatus.REOPENED, reopened.outcomeStatus);
     }
 
     @Test

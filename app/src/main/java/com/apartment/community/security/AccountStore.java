@@ -8,6 +8,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * Pure-Java account operations on the {@code registered_users} JSON array kept in
@@ -59,6 +60,7 @@ public final class AccountStore {
 
     /** Immutable, credential-free snapshot of a stored account. */
     public static final class Account {
+        public final String id;
         public final String name;
         public final String email;
         public final String unit;
@@ -67,8 +69,9 @@ public final class AccountStore {
         public final String roleGrantedBy;        // "self", "device-setup" or the granting account
         public final boolean hasValidPassword;    // recognized PBKDF2 or legacy credential present
 
-        Account(String name, String email, String unit, String phone, CommunityRole role,
+        Account(String id, String name, String email, String unit, String phone, CommunityRole role,
                 String roleGrantedBy, boolean hasValidPassword) {
+            this.id = id;
             this.name = name;
             this.email = email;
             this.unit = unit;
@@ -170,6 +173,7 @@ public final class AccountStore {
     private static Account snapshot(JSONObject record) {
         String credential = record.optString("passwordHash", "");
         return new Account(
+                record.optString("accountId", ""),
                 record.optString("name", ""),
                 normalizeEmail(record.optString("email")),
                 record.optString("unit", ""),
@@ -177,6 +181,17 @@ public final class AccountStore {
                 parseRole(record),
                 record.optString("roleGrantedBy", ""),
                 PasswordHasher.hasRecognizedFormat(credential));
+    }
+
+    private static String newAccountId() {
+        return "user-" + UUID.randomUUID();
+    }
+
+    /** Adds a stable local identity once; failed operations still return the original JSON. */
+    private static boolean ensureAccountId(JSONObject record) {
+        if (!record.optString("accountId", "").trim().isEmpty()) return false;
+        record.put("accountId", newAccountId());
+        return true;
     }
 
     // --- Queries ---
@@ -272,6 +287,7 @@ public final class AccountStore {
                         "An account with this email already exists on this device.");
             }
             JSONObject record = new JSONObject();
+            record.put("accountId", newAccountId());
             record.put("name", trimmedName);
             record.put("email", normalized);
             record.put("unit", trimmedUnit);
@@ -323,7 +339,7 @@ public final class AccountStore {
                 return Result.fail(json, Error.BAD_CREDENTIALS,
                         "Invalid credentials. Please check your password and try again.");
             }
-            boolean upgraded = false;
+            boolean upgraded = ensureAccountId(record);
             if (PasswordHasher.needsUpgrade(stored)) {
                 // Transparent one-time upgrade of a verified legacy credential.
                 record.put("passwordHash", PasswordHasher.hash(rawPassword));
@@ -367,6 +383,7 @@ public final class AccountStore {
                         "This account already has a password. Offline recovery only applies to "
                                 + "accounts whose password was never stored on this device.");
             }
+            ensureAccountId(record);
             record.put("passwordHash", PasswordHasher.hash(rawPassword));
             record.put("pwUpdatedAt", System.currentTimeMillis());
             record.put("recoveredAt", System.currentTimeMillis());
@@ -411,6 +428,7 @@ public final class AccountStore {
                             "Another account on this device already uses that email.");
                 }
             }
+            ensureAccountId(record);
             record.put("name", trimmedName);
             record.put("email", normalizedNew);
             record.put("unit", trimmedUnit);
@@ -468,6 +486,7 @@ public final class AccountStore {
                 record.put("roleGrantedBy",
                         grantedByLabel == null || grantedByLabel.isEmpty() ? "self" : grantedByLabel);
             }
+            ensureAccountId(record);
             record.put("role", role.name());
             record.put("roleGrantedAt", System.currentTimeMillis());
             return Result.success(arr.toString(), snapshot(record), false);
@@ -501,6 +520,7 @@ public final class AccountStore {
                     o.put("email", normalized);
                     changed = true;
                 }
+                if (ensureAccountId(o)) changed = true;
                 records.add(o);
             }
             // Merge duplicates on normalized email.

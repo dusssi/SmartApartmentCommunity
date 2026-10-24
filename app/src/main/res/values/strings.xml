@@ -37,5 +37,10 @@
     <string name="action_logout">Logout</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_retry">Retry</string>
+    <string name="action_back">Back</string>
     <string name="action_continue">Continue</string>
+    <string name="operations_title">Issue operations</string>
+    <string name="operations_local_subtitle">Local operations workspace</string>
+    <string name="operations_local_workspace">LOCAL OPERATIONS · ON-DEVICE</string>
+    <string name="operations_local_description">Fictional records on this installation. No backend sync, secure file upload, or AI action is taking place.</string>
 </resources>

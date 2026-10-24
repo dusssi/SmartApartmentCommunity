@@ -47,6 +47,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.apartment.community.adapter.ListRow;
 import com.apartment.community.adapter.SimpleListAdapter;
 import com.apartment.community.api.ApiConfig;
+import com.apartment.community.feature.operations.OperationsActivity;
 import com.apartment.community.model.Announcement;
 import com.apartment.community.model.CommunityDocument;
 import com.apartment.community.model.CommunityEvent;
@@ -92,6 +93,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int NAV_SECOND = 2;
     private static final int NAV_THIRD = 3;
     private static final int NAV_PROFILE = 4;
+    private static final int REQUEST_OPERATIONS = 4102;
 
     private final List<Route> backStack = new ArrayList<>();
     private PersistentRepository repository;
@@ -1173,16 +1175,19 @@ public class MainActivity extends AppCompatActivity {
             result.add(new String[]{String.valueOf(in), "On site"});
             result.add(new String[]{String.valueOf(repository.countUnreadNotifications()), "Updates"});
         } else if (role == CommunityRole.MAINTENANCE) {
-            int progress = 0, resolved = 0;
-            for (Complaint item : repository.getComplaints()) {
+            int open = 0, progress = 0, resolved = 0;
+            for (Complaint item : visibleComplaints()) {
+                if (!"Resolved".equals(item.status)) open++;
                 if ("In Progress".equals(item.status)) progress++;
                 if ("Resolved".equals(item.status)) resolved++;
             }
-            result.add(new String[]{String.valueOf(repository.countOpenComplaints()), "Open"});
+            result.add(new String[]{String.valueOf(open), "Open"});
             result.add(new String[]{String.valueOf(progress), "In progress"});
             result.add(new String[]{String.valueOf(resolved), "Resolved"});
         } else {
-            result.add(new String[]{String.valueOf(repository.countOpenComplaints()), "Open issues"});
+            int open = 0;
+            for (Complaint item : visibleComplaints()) if (!"Resolved".equals(item.status)) open++;
+            result.add(new String[]{String.valueOf(open), "Open issues"});
             result.add(new String[]{String.valueOf(repository.countExpectedVisitors()), "Visitors"});
             result.add(new String[]{String.valueOf(repository.countUnreadAnnouncements()), "New updates"});
         }
@@ -1198,6 +1203,9 @@ public class MainActivity extends AppCompatActivity {
             tiles.add(new Tile("Notifications", "Inbox", "NOTIFICATIONS", R.drawable.ic_bell));
         } else if (role == CommunityRole.MAINTENANCE) {
             tiles.add(new Tile("Complaints", "Review work queue", "COMPLAINTS", R.drawable.ic_build));
+            tiles.add(new Tile("Operations feed", "Assigned work history", "OPS_FEED", R.drawable.ic_briefcase));
+            tiles.add(new Tile("Asset reliability", "Prior incidents and repairs", "OPS_ASSETS", R.drawable.ic_build));
+            tiles.add(new Tile("Resolution quality", "Proposed versus verified", "OPS_QUALITY", R.drawable.ic_check));
             tiles.add(new Tile("Service requests", "View request status", "REQUESTS", R.drawable.ic_calendar));
             tiles.add(new Tile("Announcements", "Community notices", "ANNOUNCEMENTS", R.drawable.ic_bell));
             tiles.add(new Tile("Emergency contacts", "Directory", "EMERGENCY", R.drawable.ic_phone));
@@ -1205,6 +1213,11 @@ public class MainActivity extends AppCompatActivity {
         } else {
             tiles.add(new Tile("Announcements", "Notices and updates", "ANNOUNCEMENTS", R.drawable.ic_bell));
             tiles.add(new Tile("Complaints", "Report and track", "COMPLAINTS", R.drawable.ic_build));
+            tiles.add(new Tile("Issue activity", "Your outcome timeline", "OPS_FEED", R.drawable.ic_briefcase));
+            tiles.add(new Tile("Resolution quality", "Track verified outcomes", "OPS_QUALITY", R.drawable.ic_check));
+            if (role == CommunityRole.MANAGEMENT) {
+                tiles.add(new Tile("Asset reliability", "Service history", "OPS_ASSETS", R.drawable.ic_build));
+            }
             tiles.add(new Tile("Service requests", "Community help", "REQUESTS", R.drawable.ic_calendar));
             tiles.add(new Tile("Visitors", "Register visits", "VISITORS", R.drawable.ic_visitors));
             tiles.add(new Tile("Resident directory", "Find neighbours", "RESIDENTS", R.drawable.ic_people));
@@ -1639,7 +1652,7 @@ public class MainActivity extends AppCompatActivity {
                     result.add(new ListRow(item.id, item.name, "Apartment " + item.apartmentUnit, item.household + " · Resident", "Resident"));
             }
         } else if ("COMPLAINTS".equals(type)) {
-            for (Complaint item : repository.getComplaints()) {
+            for (Complaint item : visibleComplaints()) {
                 if (matchesFilter(type, item.status, "", filter)
                         && hasQuery(q, item.title, item.description, item.category, item.apartmentUnit, item.priority))
                     result.add(new ListRow(item.id, item.title, item.category + " · " + item.apartmentUnit,
@@ -1830,7 +1843,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showComplaintDetail(LinearLayout content, String id) {
-        Complaint item = repository.findComplaint(id);
+        final Complaint item = findVisibleComplaint(id);
         if (item == null) { addNotFound(content); return; }
         addPill(content, item.status + " · " + item.priority + " priority");
         addTopMargin(content, text(item.title, 25, R.color.text_primary, true), 12);
@@ -1838,33 +1851,11 @@ public class MainActivity extends AppCompatActivity {
         addInfoCard(content, "DESCRIPTION", item.description);
         addSectionHeader(content, "Status history", null, null, 20);
         for (String entry : item.history) addTimelineRow(content, entry);
-        CommunityRole role = repository.getCurrentUser().role;
-        if (role == CommunityRole.MAINTENANCE || role == CommunityRole.MANAGEMENT) {
-            final String actionLabel = nextComplaintAction(item.status);
-            MaterialButton action = fullButton(actionLabel, true);
-            addTopMargin(content, action, 14);
-            action.setOnClickListener(v -> {
-                if (isSubmitting) return;
-                Runnable performUpdate = () -> {
-                    isSubmitting = true;
-                    Motion.setButtonLoading(action, "Updating...");
-                    repository.advanceComplaint(item.id);
-                    Motion.completeButtonWithConfirmation(action, "Status: " + item.status, actionLabel, () -> {
-                        isSubmitting = false;
-                        renderQuietly();
-                    });
-                };
-                if ("Resolved".equals(item.status)) {
-                    UiFeedback.showConfirm(this, "Reopen complaint?",
-                            "This will move \"" + item.title + "\" back to Open status.",
-                            "Reopen", getString(R.string.action_cancel), false, performUpdate, null);
-                } else {
-                    performUpdate.run();
-                }
-            });
-        } else {
-            addInfoCard(content, "NEXT STEP", "Management or maintenance staff can update this status.");
-        }
+        addInfoCard(content, "OUTCOME", item.outcomeStatus.displayLabel()
+                + "\nStaff-proposed resolution and resident verification are separate steps.");
+        MaterialButton workspace = fullButton("Open resolution workspace", true);
+        addTopMargin(content, workspace, 14);
+        workspace.setOnClickListener(v -> openOperations(OperationsActivity.SECTION_ISSUE, item.id));
     }
 
     private void showRequestDetail(LinearLayout content, String id) {
@@ -2039,12 +2030,6 @@ public class MainActivity extends AppCompatActivity {
                     null
             );
         });
-    }
-
-    private String nextComplaintAction(String status) {
-        if ("Open".equals(status)) return "Start work · In Progress";
-        if ("In Progress".equals(status)) return "Mark as Resolved";
-        return "Reopen complaint";
     }
 
     private String nextRequestAction(String status) {
@@ -2665,7 +2650,10 @@ public class MainActivity extends AppCompatActivity {
         ((TextView) root.findViewById(R.id.actionTitle)).setText(tile.title);
         ((TextView) root.findViewById(R.id.actionCaption)).setText(tile.caption);
         card.setContentDescription(tile.title + ". " + tile.caption);
-        card.setOnClickListener(v -> navigate(tile.destination));
+        card.setOnClickListener(v -> {
+            if (tile.destination.startsWith("OPS_")) openOperations(tile.destination, "");
+            else navigate(tile.destination);
+        });
         Motion.attachPressFeedback(card);
         return root;
     }
@@ -2963,6 +2951,33 @@ public class MainActivity extends AppCompatActivity {
         String[] parts = value.trim().split("\\s+");
         if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase(Locale.getDefault());
         return (parts[0].substring(0, 1) + parts[parts.length - 1].substring(0, 1)).toUpperCase(Locale.getDefault());
+    }
+
+    private List<Complaint> visibleComplaints() {
+        if (repository.isIssueOperationsAvailable()) {
+            com.apartment.community.operations.OperationResult<List<Complaint>> result =
+                    repository.getOperationalIssues();
+            if (result.ok) return result.value;
+            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show();
+            return new ArrayList<>();
+        }
+        return repository.getComplaints();
+    }
+
+    private Complaint findVisibleComplaint(String id) {
+        for (Complaint item : visibleComplaints()) if (item.id.equals(id)) return item;
+        return null;
+    }
+
+    private void openOperations(String section, String recordId) {
+        Intent intent = OperationsActivity.createIntent(this, section, recordId);
+        startActivityForResult(intent, REQUEST_OPERATIONS);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_OPERATIONS && resultCode == RESULT_OK) renderQuietly();
     }
 
     private void hideKeyboard() {

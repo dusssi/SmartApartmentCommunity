@@ -15,6 +15,19 @@ import com.apartment.community.model.Resident;
 import com.apartment.community.model.ServiceRequest;
 import com.apartment.community.model.User;
 import com.apartment.community.model.Visitor;
+import com.apartment.community.operations.Actor;
+import com.apartment.community.operations.AssetHistory;
+import com.apartment.community.operations.IssueDetails;
+import com.apartment.community.operations.LocalIssueOperationsRepository;
+import com.apartment.community.operations.OperationResult;
+import com.apartment.community.operations.OperationsClock;
+import com.apartment.community.operations.ResolutionQuality;
+import com.apartment.community.operations.model.ActivityEvent;
+import com.apartment.community.operations.model.Asset;
+import com.apartment.community.operations.model.EvidenceReference;
+import com.apartment.community.operations.model.ResolutionReview;
+import com.apartment.community.operations.model.WorkLog;
+import com.apartment.community.operations.model.WorkOrder;
 import com.apartment.community.security.AccountStore;
 
 import org.json.JSONArray;
@@ -53,6 +66,8 @@ public final class PersistentRepository {
     private static final String KEY_NOTIFICATIONS = "notifications";
     private static final String KEY_DOCUMENTS = "documents";
     private static final String KEY_NEXT_NUMBER = "next_number";
+    private static final String KEY_ISSUE_OPERATIONS = "issue_operations_v1";
+    private static final String KEY_LEGACY_COMPLAINTS_BACKUP = "complaints_legacy_backup_v1";
 
     private static final String USER_ID = "user_id";
     private static final String USER_NAME = "user_name";
@@ -78,6 +93,8 @@ public final class PersistentRepository {
     private final List<CommunityDocument> documents = new ArrayList<>();
     private User currentUser;
     private int nextNumber = 1;
+    private LocalIssueOperationsRepository issueOperations;
+    private String issueOperationsError = "";
 
     private PersistentRepository(Context context) {
         Context app = context.getApplicationContext();
@@ -199,6 +216,16 @@ public final class PersistentRepository {
         return AccountStore.listAccounts(accountsJson());
     }
 
+    /** Stable credential-free Maintenance identities available for local work assignment. */
+    public synchronized List<AccountStore.Account> listMaintenanceAssignees() {
+        List<AccountStore.Account> result = new ArrayList<>();
+        for (AccountStore.Account account : listAccounts()) {
+            if (account.role == CommunityRole.MAINTENANCE && account.id != null
+                    && !account.id.trim().isEmpty()) result.add(account);
+        }
+        return result;
+    }
+
     /**
      * Registration: stores the account with a PBKDF2-hashed password and starts an
      * authenticated session that has no role yet (the role picker follows). Duplicate
@@ -221,7 +248,7 @@ public final class PersistentRepository {
         }
         commitAccounts(result.json);
         AccountStore.Account account = result.account;
-        currentUser = new User("user-" + System.currentTimeMillis(), account.name, account.email,
+        currentUser = new User(account.id, account.name, account.email,
                 account.unit, account.phone, null);
         userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
         saveUser();
@@ -250,11 +277,8 @@ public final class PersistentRepository {
                 Log.i(TAG, "Legacy credential upgraded to PBKDF2 after successful sign-in.");
             }
             AccountStore.Account account = result.account;
-            currentUser.name = account.name;
-            currentUser.email = account.email;
-            currentUser.apartmentUnit = account.unit;
-            currentUser.phone = account.phone;
-            currentUser.role = account.role;
+            currentUser = new User(account.id, account.name, account.email, account.unit,
+                    account.phone, account.role);
             userPrefs.edit().putBoolean(USER_AUTHENTICATED, true).apply();
             saveUser();
             return new LoginResult(LoginStatus.SUCCESS, getCurrentUser(), null);
@@ -318,10 +342,8 @@ public final class PersistentRepository {
         }
         commitAccounts(result.json);
         AccountStore.Account account = result.account;
-        currentUser.name = account.name;
-        currentUser.email = account.email;
-        currentUser.apartmentUnit = account.unit;
-        currentUser.phone = account.phone;
+        currentUser = new User(account.id, account.name, account.email, account.unit,
+                account.phone, currentUser.role);
         saveUser();
         return null;
     }
@@ -369,7 +391,8 @@ public final class PersistentRepository {
         commitAccounts(result.json);
         if (result.account != null
                 && result.account.email.equals(AccountStore.normalizeEmail(currentUser.email))) {
-            currentUser.role = result.account.role;
+            currentUser = new User(result.account.id, result.account.name, result.account.email,
+                    result.account.unit, result.account.phone, result.account.role);
             userPrefs.edit().putBoolean(USER_AUTHENTICATED, currentUser.role != null).apply();
             saveUser();
         }
@@ -391,8 +414,8 @@ public final class PersistentRepository {
             commitAccounts(migratedAccounts);
         }
 
-        if (!dataPrefs.contains(KEY_ANNOUNCEMENTS)) {
-            seed(); // first launch
+        if (dataPrefs.getAll().isEmpty()) {
+            seed(); // first launch only; any existing key makes this an upgrade, not a blank demo
             saveAll();
         } else {
             announcements.clear();
@@ -415,11 +438,62 @@ public final class PersistentRepository {
             notifications.addAll(parseNotifications(dataPrefs.getString(KEY_NOTIFICATIONS, "[]")));
             documents.addAll(parseDocuments(dataPrefs.getString(KEY_DOCUMENTS, "[]")));
 
-            // If any list empty due to parse failure, re-seed that list
-            if (announcements.isEmpty() && residents.isEmpty()) {
-                seed();
-                saveAll();
+            // An existing installation may legitimately contain empty collections. Never
+            // replace them (or complaint history) with demo seed data during migration/reload.
+        }
+        initializeIssueOperations();
+    }
+
+    private void initializeIssueOperations() {
+        issueOperations = null;
+        issueOperationsError = "";
+        LocalIssueOperationsRepository.Storage storage = new LocalIssueOperationsRepository.Storage() {
+            @Override public String read() {
+                return dataPrefs.getString(KEY_ISSUE_OPERATIONS, "");
             }
+
+            @Override public void write(String value) throws Exception {
+                boolean committed = dataPrefs.edit().putString(KEY_ISSUE_OPERATIONS, value).commit();
+                if (!committed) throw new Exception("SharedPreferences commit failed");
+            }
+        };
+        String legacyComplaintJson = dataPrefs.getString(KEY_COMPLAINTS, serializeComplaints(complaints));
+        if (!dataPrefs.contains(KEY_ISSUE_OPERATIONS) && !dataPrefs.contains(KEY_LEGACY_COMPLAINTS_BACKUP)) {
+            // Preserve the exact pre-migration projection before the compatibility writer can
+            // replace it. A failed backup stops migration instead of risking the only raw copy.
+            boolean backedUp = dataPrefs.edit()
+                    .putString(KEY_LEGACY_COMPLAINTS_BACKUP, legacyComplaintJson).commit();
+            if (!backedUp) {
+                issueOperationsError = "Issue migration paused because the legacy complaint backup "
+                        + "could not be saved. Existing data was not replaced.";
+                Log.w(TAG, "Legacy complaint backup failed; migration not started");
+                return;
+            }
+        }
+        OperationResult<LocalIssueOperationsRepository> result = LocalIssueOperationsRepository.load(
+                storage, legacyComplaintJson, OperationsClock.SYSTEM);
+        if (!result.ok) {
+            issueOperationsError = result.message;
+            Log.w(TAG, "Issue operations unavailable: " + result.error);
+            return;
+        }
+        issueOperations = result.value;
+        if (!issueOperations.migrationWarnings().isEmpty()) {
+            Log.w(TAG, "Issue migration completed with "
+                    + issueOperations.migrationWarnings().size() + " warning(s); legacy JSON retained.");
+        }
+        synchronizeIssueProjection();
+    }
+
+    private void synchronizeIssueProjection() {
+        if (issueOperations == null) return;
+        complaints.clear();
+        complaints.addAll(issueOperations.exportComplaints());
+        String projection = serializeComplaints(complaints);
+        if (!projection.equals(dataPrefs.getString(KEY_COMPLAINTS, ""))) {
+            // The versioned operations snapshot is canonical and already committed. This legacy
+            // projection is best-effort compatibility for old screens and will be rebuilt on load.
+            dataPrefs.edit().putString(KEY_COMPLAINTS, projection).apply();
         }
     }
 
@@ -588,8 +662,16 @@ public final class PersistentRepository {
                 o.put("priority", c.priority);
                 o.put("apartmentUnit", c.apartmentUnit);
                 o.put("createdAt", c.createdAt);
+                o.put("createdAtEpochMs", c.createdAtEpochMs);
                 o.put("updatedAt", c.updatedAt);
+                o.put("updatedAtEpochMs", c.updatedAtEpochMs);
                 o.put("status", c.status);
+                o.put("outcomeStatus", c.outcomeStatus.name());
+                o.put("communityId", c.communityId);
+                o.put("reporterId", c.reporterId);
+                o.put("assetId", c.assetId);
+                o.put("location", c.location);
+                o.put("version", c.version);
                 JSONArray hist = new JSONArray();
                 for (String h : c.history) hist.put(h);
                 o.put("history", hist);
@@ -605,17 +687,25 @@ public final class PersistentRepository {
             JSONArray arr = new JSONArray(json);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
+                String createdAt = o.optString("createdAt");
+                String status = o.optString("status", "Open");
+                Complaint.OutcomeStatus outcome = "Resolved".equals(status)
+                        ? Complaint.OutcomeStatus.LEGACY_RESOLVED_UNVERIFIED
+                        : Complaint.OutcomeStatus.NOT_PROPOSED;
+                if (o.has("outcomeStatus")) {
+                    outcome = Complaint.OutcomeStatus.valueOf(o.optString("outcomeStatus"));
+                }
                 Complaint c = new Complaint(
-                        o.optString("id"),
-                        o.optString("title"),
-                        o.optString("description"),
-                        o.optString("category"),
-                        o.optString("priority"),
-                        o.optString("apartmentUnit"),
-                        o.optString("createdAt"),
-                        o.optString("status", "Open")
-                );
-                c.updatedAt = o.optString("updatedAt", c.createdAt);
+                        o.optString("id"), o.optString("title"), o.optString("description"),
+                        o.optString("category"), o.optString("priority"), o.optString("apartmentUnit"),
+                        createdAt, o.optLong("createdAtEpochMs", 0L),
+                        o.optString("updatedAt", createdAt), o.optLong("updatedAtEpochMs", 0L),
+                        status, outcome,
+                        o.optString("communityId", Complaint.LEGACY_COMMUNITY_ID),
+                        o.optString("reporterId", Complaint.LEGACY_REPORTER_ID),
+                        o.optString("assetId", ""),
+                        o.optString("location", o.optString("apartmentUnit")),
+                        o.optLong("version", 0L));
                 c.history.clear();
                 JSONArray hist = o.optJSONArray("history");
                 if (hist != null) {
@@ -625,7 +715,10 @@ public final class PersistentRepository {
                 }
                 out.add(c);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception error) {
+            Log.w(TAG, "Legacy complaint projection could not be parsed; original JSON remains stored.", error);
+            return new ArrayList<>();
+        }
         return out;
     }
 
@@ -916,26 +1009,160 @@ public final class PersistentRepository {
     }
 
     public synchronized Complaint addComplaint(String title, String description, String category, String priority, String unit) {
-        String id = "C-" + (200 + nextNumber++);
-        Complaint value = new Complaint(id, title, description, category, priority, unit, "Just now", "Open");
-        complaints.add(0, value);
+        Complaint value;
+        if (issueOperations != null) {
+            OperationResult<Complaint> result = issueOperations.createComplaint(currentActor(),
+                    title, description, category, priority, unit, unit);
+            if (!result.ok) throw new IllegalStateException(result.message);
+            value = result.value;
+            synchronizeIssueProjection();
+        } else {
+            // Explicit degraded legacy mode: preserve the old create workflow when the new store
+            // cannot load, while the operations UI displays the storage error instead of fake data.
+            String id = "C-" + (200 + nextNumber++);
+            value = new Complaint(id, title, description, category, priority, unit, "Just now", "Open");
+            complaints.add(0, value);
+            saveList(KEY_COMPLAINTS, serializeComplaints(complaints));
+        }
         addNotification("Complaint submitted", title + " was added.", "Maintenance", "COMPLAINTS");
-        saveList(KEY_COMPLAINTS, serializeComplaints(complaints));
         saveList(KEY_NOTIFICATIONS, serializeNotifications(notifications));
         return value;
     }
 
-    public synchronized void advanceComplaint(String id) {
-        Complaint item = findComplaint(id);
-        if (item == null) return;
-        if ("Open".equals(item.status)) item.status = "In Progress";
-        else if ("In Progress".equals(item.status)) item.status = "Resolved";
-        else item.status = "Open";
-        item.updatedAt = "Just now";
-        item.history.add("Just now · " + item.status);
-        addNotification("Complaint status updated", item.title + " is now " + item.status + ".", "Maintenance", "COMPLAINTS");
-        saveList(KEY_COMPLAINTS, serializeComplaints(complaints));
-        saveList(KEY_NOTIFICATIONS, serializeNotifications(notifications));
+    // --- Issue-to-Outcome operations (local, community-scoped demo rules) ---
+
+    public synchronized boolean isIssueOperationsAvailable() {
+        return issueOperations != null;
+    }
+
+    public synchronized String getIssueOperationsError() {
+        return issueOperationsError;
+    }
+
+    public synchronized void retryIssueOperations() {
+        initializeIssueOperations();
+    }
+
+    public synchronized List<String> getIssueMigrationWarnings() {
+        return issueOperations == null ? new ArrayList<>() : issueOperations.migrationWarnings();
+    }
+
+    private Actor currentActor() {
+        if (currentUser == null || currentUser.role == null) {
+            throw new IllegalStateException("An authenticated local role is required.");
+        }
+        String stableId = currentUser.id;
+        for (AccountStore.Account account : listAccounts()) {
+            if (account.email.equals(AccountStore.normalizeEmail(currentUser.email))
+                    && account.id != null && !account.id.trim().isEmpty()) {
+                stableId = account.id;
+                break;
+            }
+        }
+        return new Actor(stableId, Complaint.LEGACY_COMMUNITY_ID, currentUser.role);
+    }
+
+    private <T> OperationResult<T> operationsUnavailable() {
+        return OperationResult.failure(OperationResult.Error.STORAGE_ERROR,
+                issueOperationsError == null || issueOperationsError.trim().isEmpty()
+                        ? "Issue operations are unavailable in local legacy mode." : issueOperationsError);
+    }
+
+    private <T> OperationResult<T> commitOperation(OperationResult<T> result) {
+        if (result.ok) synchronizeIssueProjection();
+        return result;
+    }
+
+    public synchronized OperationResult<List<Complaint>> getOperationalIssues() {
+        return issueOperations == null ? operationsUnavailable() : issueOperations.listIssues(currentActor());
+    }
+
+    public synchronized OperationResult<IssueDetails> getIssueDetails(String issueId) {
+        return issueOperations == null ? operationsUnavailable() : issueOperations.issueDetails(currentActor(), issueId);
+    }
+
+    public synchronized OperationResult<List<ActivityEvent>> getActivityFeed(String query,
+            ActivityEvent.Type type, int offset, int limit) {
+        return issueOperations == null ? operationsUnavailable()
+                : issueOperations.activityFeed(currentActor(), query, type, offset, limit);
+    }
+
+    public synchronized OperationResult<List<Asset>> getOperationalAssets() {
+        return issueOperations == null ? operationsUnavailable() : issueOperations.listAssets(currentActor());
+    }
+
+    public synchronized OperationResult<AssetHistory> getAssetHistory(String assetId) {
+        return issueOperations == null ? operationsUnavailable() : issueOperations.assetHistory(currentActor(), assetId);
+    }
+
+    public synchronized OperationResult<ResolutionQuality> getResolutionQuality() {
+        return issueOperations == null ? operationsUnavailable() : issueOperations.resolutionQuality(currentActor());
+    }
+
+    public synchronized OperationResult<Asset> addOperationalAsset(String name, String type,
+            String location, Asset.Criticality criticality, long installedAtEpochMs) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.createAsset(currentActor(), name, type, location, criticality, installedAtEpochMs));
+    }
+
+    public synchronized OperationResult<WorkOrder> assignIssue(String issueId, String assigneeId, String assetId) {
+        if (issueOperations == null) return operationsUnavailable();
+        boolean knownMaintenance = false;
+        for (AccountStore.Account account : listMaintenanceAssignees()) {
+            if (account.id.equals(assigneeId)) { knownMaintenance = true; break; }
+        }
+        if (!knownMaintenance) {
+            return OperationResult.failure(OperationResult.Error.INVALID_INPUT,
+                    "Select an existing local Maintenance account as the assignee.");
+        }
+        return commitOperation(issueOperations.assignIssue(currentActor(), issueId, assigneeId, assetId));
+    }
+
+    public synchronized OperationResult<WorkOrder> changeWorkOrderStatus(String workOrderId,
+            long expectedVersion, WorkOrder.Status targetStatus) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.changeWorkOrderStatus(currentActor(), workOrderId, expectedVersion, targetStatus));
+    }
+
+    public synchronized OperationResult<WorkLog> addOperationalWorkLog(String workOrderId,
+            long expectedVersion, WorkLog.Type type, String details, String nextStep, String materials) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.addWorkLog(currentActor(), workOrderId, expectedVersion, type,
+                        details, nextStep, materials));
+    }
+
+    public synchronized OperationResult<EvidenceReference> addOperationalEvidence(String workLogId,
+            String displayName, String reference, String mediaType, long sizeBytes,
+            EvidenceReference.AccessScope accessScope, int pageNumber, String section,
+            long retentionUntilEpochMs) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.addEvidence(currentActor(), workLogId, displayName, reference,
+                        mediaType, sizeBytes, accessScope, pageNumber, section, retentionUntilEpochMs));
+    }
+
+    public synchronized OperationResult<ResolutionReview> proposeOperationalResolution(
+            String workOrderId, long expectedVersion, String summary) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.proposeResolution(currentActor(), workOrderId, expectedVersion, summary));
+    }
+
+    public synchronized OperationResult<ResolutionReview> reviewOperationalResolution(
+            String reviewId, boolean confirmed, String note) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.reviewResolution(currentActor(), reviewId, confirmed, note));
+    }
+
+    public synchronized OperationResult<Complaint> reopenOperationalIssue(String issueId, String reason) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.reopenIssue(currentActor(), issueId, reason));
+    }
+
+    public synchronized OperationResult<Complaint> reportOperationalRecurrence(String previousIssueId,
+            String title, String description, String category, String priority,
+            String apartmentUnit, String location, String notes) {
+        return issueOperations == null ? operationsUnavailable() : commitOperation(
+                issueOperations.reportRecurrence(currentActor(), previousIssueId, title, description,
+                        category, priority, apartmentUnit, location, notes));
     }
 
     public synchronized ServiceRequest addRequest(String title, String description, String category, String unit) {

@@ -47,6 +47,12 @@
     <color name="info">#0284C7</color>
     <color name="info_container">#E0F2FE</color>
 
+    <!-- Operations workspace — restrained navy/indigo accents with accessible light surfaces -->
+    <color name="operations_navy">#102A43</color>
+    <color name="operations_indigo">#3730A3</color>
+    <color name="operations_on_navy_secondary">#D9E2EC</color>
+    <color name="operations_outcome_surface">#EEF2FF</color>
+
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
 

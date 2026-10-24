@@ -179,17 +179,6 @@ public final class DemoRepository {
         return value;
     }
 
-    public synchronized void advanceComplaint(String id) {
-        Complaint item = findComplaint(id);
-        if (item == null) return;
-        if ("Open".equals(item.status)) item.status = "In Progress";
-        else if ("In Progress".equals(item.status)) item.status = "Resolved";
-        else item.status = "Open";
-        item.updatedAt = "Just now";
-        item.history.add("Just now · " + item.status);
-        addNotification("Complaint status updated", item.title + " is now " + item.status + ".", "Maintenance", "COMPLAINTS");
-    }
-
     public synchronized ServiceRequest addRequest(String title, String description, String category, String unit) {
         String id = "SR-" + (300 + nextNumber++);
         ServiceRequest value = new ServiceRequest(id, title, description, category, unit, "Just now", "Open");

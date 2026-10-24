@@ -85,6 +85,11 @@ final class IssueOperationsState {
         return null;
     }
 
+    EvidenceReference evidence(String id) {
+        for (EvidenceReference value : evidence) if (value.id.equals(id)) return value;
+        return null;
+    }
+
     void replace(Complaint replacement) {
         for (int i = 0; i < complaints.size(); i++) {
             if (complaints.get(i).id.equals(replacement.id)) {
@@ -117,9 +122,15 @@ final class IssueOperationsState {
 
     ActivityEvent event(Actor actor, ActivityEvent.Type type, String issueId, String relatedIssueId,
                         String workOrderId, String assetId, String title, String detail, long at) {
+        return event(actor, type, issueId, relatedIssueId, workOrderId, assetId, title, detail, at, "");
+    }
+
+    ActivityEvent event(Actor actor, ActivityEvent.Type type, String issueId, String relatedIssueId,
+                        String workOrderId, String assetId, String title, String detail, long at,
+                        String evidenceId) {
         ActivityEvent event = new ActivityEvent(newId("ACT"), nextActivitySequence++,
                 actor.communityId, issueId, relatedIssueId, workOrderId, assetId, actor.id,
-                actor.role, type, title, detail, at);
+                actor.role, type, title, detail, at, evidenceId);
         activities.add(event);
         return event;
     }
