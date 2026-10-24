@@ -107,6 +107,10 @@ jobs:
         if: failure()
         working-directory: ${{ github.workspace }}
         run: python3 scripts/ci_test_diagnostics.py backend/build/test-results/test
+      - name: Surface H2 server errors
+        if: failure()
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/ci_test_diagnostics.py backend/build/test-results/test --server
       - name: Upload H2 test reports
         if: always()
         uses: actions/upload-artifact@v4

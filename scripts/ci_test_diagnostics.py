@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 import sys
 
 root = Path(sys.argv[1])
+server_mode = len(sys.argv) > 2 and sys.argv[2] == "--server"
 reports = sorted(root.glob("*.xml"))
 failures = []
 emitted = 0
@@ -16,6 +17,23 @@ def annotate(text):
     escaped = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     print(f"::error::{escaped}")
     emitted += 1
+
+if server_mode:
+    for report in reports:
+        try:
+            suite = ET.parse(report).getroot()
+        except (ET.ParseError, OSError):
+            continue
+        for output_name in ("system-out", "system-err"):
+            output = suite.find(output_name)
+            if output is None or not output.text:
+                continue
+            lines = output.text.splitlines()
+            for index, line in enumerate(lines):
+                if "Unhandled API error" in line:
+                    for selected in lines[index:index + 5]:
+                        annotate(selected)
+    sys.exit(0)
 
 for report in reports:
     try:
