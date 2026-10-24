@@ -74,6 +74,10 @@ public class ComplaintService {
             String existingAsset = existing.asset == null ? null : existing.asset.getId();
             if (!existing.title.equals(request.title().trim())
                     || !existing.description.equals(request.description().trim())
+                    || !existing.category.equals(request.category().trim())
+                    || existing.priority != request.priority()
+                    || !existing.apartmentUnit.equals(unit)
+                    || !existing.location.equals(request.location().trim())
                     || !Objects.equals(existingAsset, requestedAsset)) {
                 throw ApiException.conflict("IDEMPOTENCY_KEY_REUSED",
                         "This idempotency key was already used for a different complaint.");

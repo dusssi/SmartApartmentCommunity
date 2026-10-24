@@ -24,6 +24,11 @@ class ComplaintWorkflowIntegrationTest extends OperationsTestSupport {
         JsonNode replay = post(base + "/complaints", fixture.resident().accessToken(), complaintBody,
                 "complaint-request-0001", 200);
         assertEquals(complaint.get("id").asText(), replay.get("id").asText());
+        Map<String, Object> changedRequest = new HashMap<>(complaintBody);
+        changedRequest.put("title", "A different complaint must not reuse the key");
+        JsonNode reused = post(base + "/complaints", fixture.resident().accessToken(), changedRequest,
+                "complaint-request-0001", 409);
+        assertEquals("IDEMPOTENCY_KEY_REUSED", reused.get("code").asText());
         assertEquals(1, get(base + "/complaints", fixture.resident().accessToken(), 200)
                 .get("totalElements").asInt());
         String complaintId = complaint.get("id").asText();

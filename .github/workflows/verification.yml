@@ -100,13 +100,17 @@ jobs:
           ../gradlew --no-daemon --stacktrace --console=plain test 2>&1 | tee "$RUNNER_TEMP/backend-h2.log"
       - name: Surface H2 failure diagnostics
         if: failure()
-        run: python3 scripts/ci_diagnostics.py "$RUNNER_TEMP/backend-h2.log"
+        run: |
+          python3 scripts/ci_diagnostics.py "$RUNNER_TEMP/backend-h2.log"
+          python3 scripts/ci_test_diagnostics.py backend/build/test-results/test
       - name: Upload H2 test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-h2-test-reports
-          path: backend/build/reports/tests/
+          path: |
+            backend/build/reports/tests/
+            backend/build/test-results/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -143,12 +147,16 @@ jobs:
           ../gradlew --no-daemon --stacktrace --console=plain test 2>&1 | tee "$RUNNER_TEMP/backend-mysql.log"
       - name: Surface MySQL failure diagnostics
         if: failure()
-        run: python3 scripts/ci_diagnostics.py "$RUNNER_TEMP/backend-mysql.log"
+        run: |
+          python3 scripts/ci_diagnostics.py "$RUNNER_TEMP/backend-mysql.log"
+          python3 scripts/ci_test_diagnostics.py backend/build/test-results/test
       - name: Upload MySQL test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-mysql-test-reports
-          path: backend/build/reports/tests/
+          path: |
+            backend/build/reports/tests/
+            backend/build/test-results/
           if-no-files-found: ignore
           retention-days: 7

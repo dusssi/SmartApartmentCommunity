@@ -1,11 +1,15 @@
 package com.apartment.community.server;
 
+import com.apartment.community.server.domain.AuthSession;
+import com.apartment.community.server.repository.AuthSessionRepository;
+import com.apartment.community.server.security.JwtService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.sql.DataSource;
 import java.sql.DatabaseMetaData;
+import java.time.Instant;
 import java.sql.ResultSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -18,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AuthIntegrationTest extends AbstractApiIntegrationTest {
     @Autowired DataSource dataSource;
+    @Autowired AuthSessionRepository sessions;
+    @Autowired JwtService jwtService;
 
     @Test
     void registrationLoginRefreshRotationAndLogoutAreRealSessionTransitions() throws Exception {
@@ -64,6 +70,20 @@ class AuthIntegrationTest extends AbstractApiIntegrationTest {
     }
 
     @Test
+    void expiredServerSessionRejectsAccessAndRefreshTokens() throws Exception {
+        JsonNode registered = post("/api/v1/auth/register", null, registration(
+                "Expired Session", "expired@example.test", "Example Homes"), 201);
+        String access = registered.get("accessToken").asText();
+        String sessionId = jwtService.parseAccessToken(access).sessionId();
+        AuthSession session = sessions.findById(sessionId).orElseThrow();
+        session.expiresAt = Instant.now().minusSeconds(60);
+        sessions.saveAndFlush(session);
+        get("/api/v1/auth/me", access, 401);
+        post("/api/v1/auth/refresh", null,
+                Map.of("refreshToken", registered.get("refreshToken").asText()), 401);
+    }
+
+    @Test
     void repeatedRefreshFailuresAreRateLimitedWithoutLeakingTokenValidity() throws Exception {
         Map<String, String> request = Map.of("refreshToken", "invalid-refresh-token");
         for (int attempt = 0; attempt < 10; attempt++) {
@@ -71,6 +91,15 @@ class AuthIntegrationTest extends AbstractApiIntegrationTest {
         }
         JsonNode limited = post("/api/v1/auth/refresh", null, request, 429);
         assertEquals("RATE_LIMITED", limited.get("code").asText());
+    }
+
+    @Test
+    void healthAndOpenApiAreAvailableWithoutAuthentication() throws Exception {
+        JsonNode health = get("/actuator/health", null, 200);
+        assertEquals("UP", health.get("status").asText());
+        JsonNode openApi = get("/v3/api-docs", null, 200);
+        assertTrue(openApi.get("paths").has("/api/v1/communities/{communityId}/complaints"));
+        assertTrue(openApi.at("/components/securitySchemes/bearerAuth/type").asText().equals("http"));
     }
 
     @Test

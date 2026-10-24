@@ -414,7 +414,7 @@ public class LocalIssueOperationsRepositoryTest {
     }
 
     @Test
-    public void futureSchema_isRejectedRatherThanDowngraded() {
+    public void futureSchema_isRejectedRatherThanDowngraded() throws Exception {
         storage.value = new JSONObject().put("schemaVersion", 999).toString();
         assertFailure(LocalIssueOperationsRepository.load(storage, "[]", clock),
                 OperationResult.Error.CORRUPT_DATA);
