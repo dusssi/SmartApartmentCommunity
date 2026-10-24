@@ -2,61 +2,64 @@
 
 ## Current implementation
 
-The app is a single-activity native Android application under the existing namespace `com.apartment.community`. `MainActivity` owns route rendering and user interaction; screen content is Android Views, with XML for the host, repeated RecyclerView rows, section headers, info cards and dashboard action tiles. Material Components provide cards, inputs, buttons, chips, switches and bottom navigation.
+The application is a native Android Java/XML project in namespace `com.apartment.community`. A single `MainActivity` renders routes into the host frame; screens are primarily assembled with Android Views in Java and use XML layouts for the activity host and reusable components. Material Components provide cards, inputs, buttons, chips, switches and bottom navigation.
 
 ```text
 AndroidManifest.xml
   └─ MainActivity
-       ├─ authentication and role-preview routes
-       ├─ role-aware shell + bottom navigation
-       ├─ dashboard, hubs, lists, forms and detail routes
-       ├─ SimpleListAdapter → row_simple_item.xml
-       └─ DemoRepository → model objects / fictional local seed state
+       ├─ login / registration / recovery / role selection
+       ├─ role-aware shell and navigation
+       ├─ dashboard, module lists, forms and details
+       ├─ SimpleListAdapter + RecyclerView rows
+       ├─ Validation, Motion and UiFeedback helpers
+       └─ PersistentRepository
+            ├─ SharedPreferences + JSON records
+            └─ AccountStore (local account/credential records)
 ```
 
 ## Packages and responsibilities
 
-- `com.apartment.community.MainActivity`: demo navigation, Android UI composition, form validation, presentation and user feedback. It does not perform network or database work.
-- `com.apartment.community.model`: plain Java types for users/roles, announcements, residents, complaints, requests, visitors, events, notifications, contacts and document metadata.
-- `com.apartment.community.repository.DemoRepository`: singleton in-memory seed data and mutations used by the current demo session. UI screens ask it for records and invoke explicit mutations. It can be replaced or wrapped by a production repository/data source in a future phase.
-- `com.apartment.community.adapter`: `ListRow` presentation rows and `SimpleListAdapter`, a reusable RecyclerView card-row adapter with status styling and click handling.
-- `res/layout`: XML host and reusable UI layouts (`row_simple_item`, `view_section_header`, `view_info_card`, `view_action_tile`). `res/drawable` and `res/values` contain vector icons, shape assets, colors, strings and the Material theme.
+- `MainActivity`: route stack, screen rendering, form interaction, validation orchestration and user feedback. It is a large single activity and is a maintainability risk.
+- `model`: Java data models for users/roles, announcements, residents, complaints, service requests, visitors, events, notifications, contacts and document metadata.
+- `repository.PersistentRepository`: local record persistence through SharedPreferences and JSON; it is not a SQL database and does not synchronize between devices.
+- `security.AccountStore` and `security.PasswordHasher`: local account integrity, role assignment flow and password hashing. These are device-side controls, not server authorization.
+- `adapter`: reusable RecyclerView presentation rows.
+- `util.Validation`: reusable field validation.
+- `ui.Motion` and `ui.UiFeedback`: motion, loading, success/error feedback and confirmation dialogs.
+- `api.ApiConfig` / `api.ApiModels`: future API configuration and DTO placeholders only; no working Spring Boot API or HTTP client is included.
 
-## Navigation
+## Navigation and roles
 
-One `MainActivity` keeps a small route stack (`Route(name, id)`) and renders the selected route into the host frame. `navigate` pushes detail/form routes, `rootRoute` resets the stack for primary destinations, and Android back pops a route. Main routes share a role-specific `BottomNavigationView`:
+A small route stack (`Route(name, id)`) is rendered inside one `MainActivity`. Primary navigation varies by selected role; other modules are reached through dashboard/community links. Resident, Management, Security and Maintenance experiences are local role-aware previews. A device owner or management flow can assign staff roles in the local account store, but this does not establish a production security boundary.
 
-- Resident / Management: Home, Community, Services, Profile.
-- Security: Home, Visitors, Contacts, Profile.
-- Maintenance: Home, Complaints, Requests, Profile.
+## Local data flow
 
-All other modules are linked from dashboard or hub cards. The role is visibly labelled and changes UI affordances only. It is not a production permission system.
+1. `PersistentRepository` loads and seeds fictional records on first launch.
+2. Screens read model lists and convert them to `ListRow` objects for the RecyclerView adapter.
+3. Search and filters operate on local records.
+4. Forms validate input and call repository mutations.
+5. Repository mutations serialize affected records back to SharedPreferences JSON.
+6. Local preferences, account state and workflow records are device-specific. There is no server sync, remote audit log or cross-device shared state.
 
-## Local demo data flow
+## Security and recovery boundary
 
-1. `DemoRepository` seeds fictional records on first process access.
-2. Screens request snapshots of lists, convert them into `ListRow` view data and submit rows to the RecyclerView adapter.
-3. Search text and category/status chips filter the rows in-process.
-4. Forms validate required values, then call repository mutation methods. Details and lists read the updated object state after navigation.
-5. Supported read states, RSVP and staff status transitions update the repository object. New workflow actions may also add an in-app demo notification.
-6. Most records are memory-only. Preferences switches are separately stored in local `SharedPreferences`; they do not schedule alerts or enable notification delivery.
+Passwords use the current PBKDF2-based `PasswordHasher` implementation with per-account salt and constant-time verification; legacy SHA-256 credentials can be upgraded after a successful verification. Account updates enforce normalized email uniqueness and avoid silent first-password adoption. The explicit offline recovery path can set a credential only for a credential-less local account, but it cannot independently verify a person's identity. Do not use this local demo with real resident data or treat client-side roles as production authorization.
 
-## Backend boundary and future work
-
-Intended future flow:
+## Future architecture
 
 ```text
-Android screens / presentation
-  → repository interface / data source
-  → Spring Boot REST API
-  → MySQL
+Android presentation
+  → repository/data-source interface
+  → Spring Boot REST API (future)
+  → MySQL (future)
 ```
 
-The current code intentionally contains no fabricated endpoints, HTTP calls, token storage or placeholder network layer. A backend phase should define API contracts, request/response DTOs, secure authentication, server-side role checks, validation, loading/retry/error states, persistent storage and audit requirements. The server must be authoritative for all permissions and shared state.
+A backend phase must provide server-side identity verification and authorization, secure token handling, validation, HTTP loading/error/retry states, audit requirements and shared persistence. Room is a possible local SQL option but is not currently installed or implemented. A Room migration and MySQL backend are separate decisions.
 
-## Stability and privacy notes
+## Known technical debt
 
-- Fictional data only; sample directory data omits personal telephone numbers.
-- No unnecessary phone permission: calls open the system dialer with `ACTION_DIAL`.
-- No credentials or API secrets are embedded.
-- On process recreation the singleton can be rebuilt from seed data; the app does not claim durable workflow storage or synchronization.
+- `MainActivity` is large and combines rendering, navigation and form orchestration.
+- SharedPreferences JSON is not suitable as a relational database or a scalable multi-user store.
+- Event creation now uses date/time pickers and rejects past times; existing seeded event records retain their stored `upcoming` flag and should be reviewed for consistency.
+- Profile photo, full edit/delete CRUD, remote authentication, push delivery and document file storage are not complete.
+- Run the Gradle build, automated tests and device-level manual checklist before merging implementation changes.

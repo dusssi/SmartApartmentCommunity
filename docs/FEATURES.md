@@ -1,45 +1,36 @@
 # Feature behavior and limitations
 
-All records below are fictional. Unless stated otherwise, workflow changes are in-memory on this installation and are not synchronized. Role selection is a demonstration of different UI affordances, not authorization.
+This file describes the current source behavior. Records are fictional/sample data. Local persistence means data is stored on this installation; it does not imply server synchronization or production authorization.
 
-| Module | Screens and current behavior | Local/demo limitation and future dependency |
+| Module | Current behavior | Limitations / next work |
 |---|---|---|
-| Entry / login | Login validates email format and a six-character demo password; direct role entry is available. | No identity verification, session token or password storage. |
-| Registration | Validates name, email, six-character password and apartment/unit; creates a local demo profile, then offers role previews. | No account is created remotely and no password is persisted. |
-| Forgot password | Validates the email and explains that no email was sent. | Real recovery requires an identity/backend and delivery service. |
-| Role selection | Resident, Management, Security and Maintenance previews; role shown in the app shell. | Client-only preview; no secure permissions. |
-| Dashboard | Personalized greeting, role-specific operational counters, quick links, recent announcements and next upcoming event. | Counts derive from seeded/local demo data. |
-| Community hub | Announcement, resident, event, document, emergency-contact and inbox links. Search/filter and detail flows are provided by each module. | Security preview hides the resident directory and documents; directory details intentionally omit personal contact data. |
-| Resident directory | Search name/unit, filter by tower, open a sample household detail. Management can add a fictional directory row. | No production directory, resident verification, editing/deletion workflow or server privacy rules. |
-| Announcements | Search/filter category or priority; priority/read state shown; open details and toggle read/unread. Management can publish a local sample announcement. | No remote publishing or cross-account read state. |
-| Complaints | Search/filter status, create title/description/category/priority/unit, open detail and view seeded status history. Maintenance and Management can cycle a local status across Open → In Progress → Resolved (and reopen). | No assignment, service-level clock, attachments, durable audit log or shared management queue. |
-| Service requests | Search/filter status, submit category/title/description/unit, inspect details. Management can cycle Open → Scheduled → Completed (and reopen). | Status changes are demo-only; no scheduling, staff assignment or durable history. |
-| Visitors | Resident/Management can register name, host unit, purpose and date/time; Security/Management can progress Expected → Approved → Checked in → Checked out and inspect the local status history. Search and status filtering are available. | No real approval, identity check, gate integration or shared visitor register. |
-| Events | Search and filter Upcoming/Past; open location/date/details and save/cancel an RSVP locally. Management can create sample events. | RSVP does not notify organizers or reserve capacity; event creation has no server-side calendar/time validation. |
-| Emergency contacts | Search public India helplines and sample community entries. A valid configured number launches the system dialer; unconfigured sample numbers have no call action. | User confirms any call; public numbers are region-specific and must be verified. No call permission is requested. |
-| Notifications | Search/filter read state, open a notification to mark it read and follow its related module. New local actions can create in-app demo records. | No push notifications, remote delivery, deep links from external notifications or shared read state. |
-| Profile | View role/email/unit, edit supported fields locally, open settings and return to the entry flow with confirmation. | No account service, remote profile or secure logout/revocation. |
-| Settings | Two switches persist as local `SharedPreferences` preferences. | They are presentation preferences only; they do not schedule reminders, send email or turn on push delivery. |
-| Community documents | Search/filter sample metadata and inspect explanatory detail. Preview is disabled because there are no bundled files. | No file storage, download, viewer, document permissions or fabricated success state. |
-| Search/filter | Name, unit, title, description, category and/or status search where relevant; chips include an All/clear choice and empty results are explained. | Filtering is on-device and limited to the current sample dataset. |
-| Navigation | Role-aware bottom navigation, dashboard/hub links, detail/form routes and Android back-stack behavior. | Single-activity, single-device demo navigation; no deep-link routing. |
+| Entry and login | Registration, login, local account records, role selection and logout/session handling. | No server identity provider, remote session or identity-verified recovery. |
+| Password handling | PBKDF2-based hashing with per-account salt and constant-time verification; supported legacy hashes can upgrade after successful login. | Local device security only. Offline recovery cannot prove identity. |
+| Role experiences | Resident, Management, Security and Maintenance role-aware navigation and local staff-access flow. | Client-side role controls are not server-side authorization. |
+| Dashboard | Greeting, local counters, quick actions, recent announcements and event summaries. | Counts are local/sample data. |
+| Resident directory | Search/filter, sample resident details and Management add flow. | Full edit/delete and production privacy controls are not complete. |
+| Announcements | Browse/search/filter, detail, read/unread state and local Management creation. | No remote publishing or shared read state; full edit/delete not complete. |
+| Complaints | Create, validate, list/detail, status/history and local Management/Maintenance status transitions. | No assignment, attachments, SLA, shared queue or full edit/delete lifecycle. |
+| Service requests | Create, validate, list/detail and local status transitions. | No server scheduling/assignment or full edit/delete lifecycle. |
+| Visitors | Register visitor details (including optional phone), view history and local Security/Management status transitions. | No ID verification, gate integration, shared register or complete edit/delete lifecycle. |
+| Events | Browse, filter, detail and local RSVP. Event creation uses Android date/time pickers, rejects past date-times and saves a formatted local date/time. | No organizer notifications/capacity reservation; older seeded event flags may need reconciliation; full edit/delete not complete. |
+| Emergency contacts | Search contact list; valid numbers launch Android `ACTION_DIAL`. | Verify regional/public numbers before relying on them; no call is placed automatically. |
+| Notifications | Local in-app list, read state and navigation to related modules. | No push delivery or remote synchronization. |
+| Profile/settings | View/edit name, email, unit and phone; local preferences and logout confirmation. | Profile photo is not implemented; no remote profile service. |
+| Community documents | Browse sample metadata and explanatory details. | No bundled file storage, viewer or download service. |
+| Search/filter | On-device search and status/category filters for supported modules. | Limited to this device's local records. |
+| Data persistence | SharedPreferences + JSON for local workflow records and AccountStore for local account integrity. | Not Room, SQLite or MySQL; no multi-device sync. |
+| Backend API | `ApiConfig` and `ApiModels` are future integration placeholders. | No working Spring Boot backend, HTTP client or MySQL database is present. |
 
-## Role action summary
+## Future scope (not implemented)
 
-- **Resident:** browse shared modules, submit complaints/requests, register visitors, RSVP, update own demo profile.
-- **Management:** resident/announcement/event creation previews, review modules and update supported request/complaint/visitor statuses.
-- **Security:** focused visitor and emergency-contact destinations; can update local visitor status.
-- **Maintenance:** focused complaint queue and request destinations; can update complaint status.
+- Room/SQLite local relational storage and a migration from existing JSON.
+- Spring Boot REST API, MySQL, server-side authentication/authorization and cross-device synchronization.
+- Identity-verified password recovery.
+- Profile photo selection/storage.
+- Complete edit/delete CRUD across management modules.
+- Push notifications, actual document storage/viewing, payments, QR visitor verification, AI complaint classification and IoT integrations.
 
-Actual backend authorization and shared data are future scope. A client can always be modified, so these previews must not be used with real resident or visitor information.
+## Verification note
 
-## Phase 2 UI changes (no functional changes intended)
-
-- Role selection: each role has its own icon and a chevron; cards show ripple and press feedback; the demo disclaimer is unchanged.
-- Text fields: the floating label no longer overlaps entered text (the custom padding override is removed); the example text shows as a placeholder.
-- Keyboard: content is padded above the keyboard, and the bottom navigation hides while it is open.
-- Search: list updates use `DiffUtil`, so only changed rows animate.
-- Status changes (read/unread, complaint/request/visitor advance, RSVP) update in place without replaying the screen entrance.
-- Dashboard quick-action tiles are slightly smaller (132dp) with a 40dp icon container; the destinations are unchanged.
-- Dark theme is removed (light theme only).
-
+A successful unit-test task proves only the tests in that task passed. It does not replace installing the APK and manually checking all role workflows, date/time validation, persistence across app restart, keyboard/layout behavior and accessibility on a real device.
