@@ -15,7 +15,10 @@ def annotate(text):
     print(f"::error::{escaped}")
     emitted += 1
 
-for report in sorted(root.glob("*.xml")):
+reports = sorted(root.glob("*.xml"))
+annotate(f"JUnit diagnostic scan: {root} contains {len(reports)} XML reports")
+for report in reports:
+    before = emitted
     try:
         suite = ET.parse(report).getroot()
     except (ET.ParseError, OSError):
@@ -45,3 +48,12 @@ for report in sorted(root.glob("*.xml")):
             annotate(f"{report.name} {output_name} diagnostics")
             for line in selected[-120:]:
                 annotate(line)
+    if emitted == before:
+        raw = report.read_text(errors="replace")
+        if "<failure" in raw or "<error" in raw:
+            annotate(f"Raw JUnit failure from {report.name}")
+            lines = raw.replace("]]>", "").splitlines()
+            matches = [i for i, line in enumerate(lines) if "<failure" in line or "<error" in line]
+            for index in matches[:2]:
+                for line in lines[index:index + 100]:
+                    annotate(line)

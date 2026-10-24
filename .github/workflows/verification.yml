@@ -100,6 +100,7 @@ jobs:
           ../gradlew --no-daemon --stacktrace --console=plain test 2>&1 | tee "$RUNNER_TEMP/backend-h2.log"
       - name: Surface H2 failure diagnostics
         if: failure()
+        working-directory: ${{ github.workspace }}
         run: |
           python3 scripts/ci_diagnostics.py "$RUNNER_TEMP/backend-h2.log"
           python3 scripts/ci_test_diagnostics.py backend/build/test-results/test
@@ -147,6 +148,7 @@ jobs:
           ../gradlew --no-daemon --stacktrace --console=plain test 2>&1 | tee "$RUNNER_TEMP/backend-mysql.log"
       - name: Surface MySQL failure diagnostics
         if: failure()
+        working-directory: ${{ github.workspace }}
         run: |
           python3 scripts/ci_diagnostics.py "$RUNNER_TEMP/backend-mysql.log"
           python3 scripts/ci_test_diagnostics.py backend/build/test-results/test

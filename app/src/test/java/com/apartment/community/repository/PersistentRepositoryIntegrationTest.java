@@ -220,7 +220,7 @@ public class PersistentRepositoryIntegrationTest {
         throw new AssertionError("Work order not found");
     }
 
-    private static String legacyComplaintJson() {
+    private static String legacyComplaintJson() throws Exception {
         return new JSONArray().put(new JSONObject().put("id", "C-legacy").put("title", "Old issue")
                 .put("description", "Legacy details").put("category", "Other")
                 .put("priority", "Normal").put("apartmentUnit", "A-1")
